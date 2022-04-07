@@ -9,6 +9,7 @@ import pycolmap
 
 import hloc
 from hloc import reconstruction, extract_features, match_features
+from hloc.utils import viz_3d
 
 images = Path('data/frames/test1/')
 outputs = Path('out/test1/')
@@ -74,17 +75,20 @@ def good_matches(keypoint, query, matches):
     # des1 = keypoint["des"]
     kp2 = query["kp"]
     # des2 = query["des"]
-    # appearently the firsst imag you give for the matcher is the query and the secod one the train
+    # appearently the firsst image you give for the matcher is the query and the secod one the train
     return [match for match in matches if euc_dist_check(kp1[match.queryIdx].pt, kp2[match.trainIdx].pt)]
     # return [match for match in matches if euc_dist_check(kp1[match.trainIdx].pt, kp2[match.queryIdx].pt)]
+
 
 def orb_kp_to_keypints(kps):
     a = [np.ndarray[np.float64[2, 1]]]
     # a.extend([keypoint.pt for keypoint in kps])
     return np.ndarray([keypoint.pt for keypoint in kps])
 
+
 if __name__ == '__main__':
     currFrameIdx = 0
+    keypointIdx = 0
     frameNames = os.listdir(images)
     # Assuming the frames are indexed
     frameNames.sort()
@@ -98,37 +102,51 @@ if __name__ == '__main__':
         "des": des
     }
     keyframes.append(currentKeyframe)
-    currFrameIdx += 1
 
-    #width = 100
-    #height = 100
-    #focal_length = 1
-    #cx = 0
-    #cy = 0
-    #camera = pycolmap.Camera(
-        #model='SIMPLE_PINHOLE',
-        #width=width,
-        #height=height,
-        #params=[focal_length, cx, cy],
-    #)
+    # width = 100
+    # height = 100
+    # focal_length = 1
+    # cx = 0
+    # cy = 0
+    # camera = pycolmap.Camera(
+    # model='SIMPLE_PINHOLE',
+    # width=width,
+    # height=height,
+    # params=[focal_length, cx, cy],
+    # )
 
     camera = pycolmap.infer_camera_from_image(images / frameNames[currFrameIdx])
     reconstruction = pycolmap.Reconstruction()
     reconstruction.add_camera(camera)
 
     # model = pycolmap.Reconstruction.main()
-    sfm_dir.mkdir(parents=True, exist_ok=True)
-    database = sfm_dir / 'database.db'
-    hloc.reconstruction.create_empty_db(database)
-    pycolmap.import_images(database, images, pycolmap.CameraMode.AUTO)
+    # sfm_dir.mkdir(parents=True, exist_ok=True)
+    # database = sfm_dir / 'database.db'
+    # hloc.reconstruction.create_empty_db(database)
+    # pycolmap.import_images(database, images, pycolmap.CameraMode.AUTO)
+
+    old_im = pycolmap.Image(id=keypointIdx, name=str(keypointIdx), camera_id=camera.camera_id, tvec=[0, 0, 0])
+    old_im.registered = True
+    reconstruction.add_image(old_im)
+    reconstruction.add_point3D([0, 0, 0], pycolmap.Track(), np.zeros(3))
+
+    # pycolmap.pose
+    # fig = viz_3d.init_figure()
+    # viz_3d.plot_reconstruction(fig, reconstruction, min_track_length=0, color='rgb(255,0,0)')
+    # fig.show()
+
     # img = pycolmap.Image(name=frameNames[currFrameIdx],
     #                     keypoints=orb_kp_to_keypints(kp),
     #                     cameraid=0)
-    #img.SetName(frameNames[currFrameIdx])
-    #img.SetPoints2D(kp)
-    #img.SetImageId(0)
-    #reconstruction.add_image(img)
-    hloc.extract_features.main(hloc.extract_features.confs['superpoint_aachen'], images, image_list=frameNames, feature_path=features)
+    # img.SetName(frameNames[currFrameIdx])
+    # img.SetPoints2D(kp)
+    # img.SetImageId(0)
+    # reconstruction.add_image(img)
+
+    #hloc.extract_features.main(hloc.extract_features.confs['superpoint_aachen'], images,
+    #                           image_list=frameNames[currFrameIdx], feature_path=features)
+    currFrameIdx += 1
+    keypointIdx += 1
     while currFrameIdx < len(frameNames):
         kp, des = orb_detector(images / frameNames[currFrameIdx])
         detector = {
@@ -141,13 +159,32 @@ if __name__ == '__main__':
 
         # 8 Just a chosen constant (at least 4 are needed for Homography)
         # if len(usedMatches) > 4:
-        if currFrameIdx % 20 == 0:
-            answer = pycolmap.homography_matrix_estimation(
+        if currFrameIdx % 5 == 0:
+            # Estimate RElative pose between the two images
+            # TODO check type as in: https://github.com/colmap/colmap/blob/dev/src/estimators/two_view_geometry.h#L47-L67
+            answer = pycolmap.two_view_geometry_estimation(
                 [currentKeyframe["kp"][match.queryIdx].pt for match in matches],
                 [detector["kp"][match.trainIdx].pt for match in matches],
+                camera,
+                camera
             )
+
+            # TODO make 3D point reconstruction
+
+            im = pycolmap.Image(id=keypointIdx, name=str(keypointIdx), camera_id=camera.camera_id, tvec=(old_im.tvec + answer["tvec"]), qvec=(old_im.qvec + answer["qvec"]))
+            #im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p, id_) for p, id_ in zip(p2d_obs, rec.points3D)])
+            im.registered = True
+            reconstruction.add_image(im)
+            # reconstruction.add_point3D(old_im.tvec + answer["tvec"], pycolmap.Track(), np.zeros(3))
 
             keyframes.append(detector)
             currentKeyframe = detector
-            print(currFrameIdx)
+            old_im = im
+            keypointIdx += 1
+            # print(currFrameIdx)
         currFrameIdx += 1
+
+    fig = viz_3d.init_figure()
+    viz_3d.plot_reconstruction(fig, reconstruction, min_track_length=0, color='rgb(255,0,0)')
+    fig.show()
+    a = 0
