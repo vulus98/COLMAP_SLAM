@@ -94,19 +94,20 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frameNames.sort()
 
-    keyframes = []
-
-    kp, des = orb_detector(images / frameNames[currFrameIdx])
-    currentKeyframe = {
-        "name": frameNames[currFrameIdx],
-        "kp": kp,
-        "des": des
-    }
-    keyframes.append(currentKeyframe)
-
     camera = pycolmap.infer_camera_from_image(images / frameNames[currFrameIdx])
     reconstruction = pycolmap.Reconstruction()
     reconstruction.add_camera(camera)
+    graph = pycolmap.CorrespondenceGraph()
+
+    max_reproj_error = 10.0
+    max_angle_error = 5.0
+    min_tri_angle = 5
+
+    options = pycolmap.IncrementalTriangulatorOptions()
+    options.create_max_angle_error = max_angle_error
+    options.continue_max_angle_error = max_angle_error
+    options.merge_max_reproj_error = max_reproj_error
+    options.complete_max_reproj_error = max_reproj_error
 
     # model = pycolmap.Reconstruction.main()
     # sfm_dir.mkdir(parents=True, exist_ok=True)
@@ -114,10 +115,24 @@ if __name__ == '__main__':
     # hloc.reconstruction.create_empty_db(database)
     # pycolmap.import_images(database, images, pycolmap.CameraMode.AUTO)
 
+    # keyframes = []
+
+    kp, des = orb_detector(images / frameNames[currFrameIdx])
+    currentKeyframe = {
+        "name": frameNames[currFrameIdx],
+        "kp": kp,
+        "des": des
+    }
+    # keyframes.append(currentKeyframe)
+
     old_im = pycolmap.Image(id=keypointIdx, name=str(keypointIdx), camera_id=camera.camera_id, tvec=[0, 0, 0])
     old_im.registered = True
+    points2D = [keypoint.pt for keypoint in kp]
+    old_im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
     reconstruction.add_image(old_im)
     reconstruction.add_point3D([0, 0, 0], pycolmap.Track(), np.zeros(3))
+
+    graph.add_image(old_im.image_id, len(old_im.points2D))
 
     # pycolmap.pose
     # fig = viz_3d.init_figure()
@@ -134,6 +149,10 @@ if __name__ == '__main__':
 
     #hloc.extract_features.main(hloc.extract_features.confs['superpoint_aachen'], images,
     #                           image_list=frameNames[currFrameIdx], feature_path=features)
+
+    triangulator = pycolmap.IncrementalTriangulator(graph, reconstruction)
+    # triangulator.triangulate_image(options, keypointIdx)
+
     currFrameIdx += 1
     keypointIdx += 1
     while currFrameIdx < len(frameNames):
@@ -158,20 +177,31 @@ if __name__ == '__main__':
                 camera
             )
 
-            # TODO make 3D point reconstruction
-
             im = pycolmap.Image(id=keypointIdx, name=str(keypointIdx), camera_id=camera.camera_id, tvec=(old_im.tvec + answer["tvec"]), qvec=(old_im.qvec + answer["qvec"]))
             #im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p, id_) for p, id_ in zip(p2d_obs, rec.points3D)])
+            points2D = [keypoint.pt for keypoint in kp]
+            im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
             im.registered = True
             reconstruction.add_image(im)
             # reconstruction.add_point3D(old_im.tvec + answer["tvec"], pycolmap.Track(), np.zeros(3))
 
-            keyframes.append(detector)
+            matches = [(match.trainIdx, match.queryIdx) for match in matches]
+            matches = np.array(matches, dtype=np.uint32)
+            # add image and correspondence to graph
+            graph.add_image(im.image_id, len(im.points2D))
+            graph.add_correspondences(old_im.image_id, im.image_id, matches)
+
+            triangulator.triangulate_image(options, keypointIdx)
+
+            # keyframes.append(detector)
             currentKeyframe = detector
             old_im = im
             keypointIdx += 1
             # print(currFrameIdx)
         currFrameIdx += 1
+
+    # for i in range(0, keypointIdx):
+    #    triangulator.triangulate_image(options, i)
 
     fig = viz_3d.init_figure()
     viz_3d.plot_reconstruction(fig, reconstruction, min_track_length=0, color='rgb(255,0,0)')
