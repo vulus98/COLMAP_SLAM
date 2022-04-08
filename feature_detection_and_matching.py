@@ -19,14 +19,15 @@ def get_frames(input_path):
             i = 0
             continue
         i += 1
+
     cap.release()
     cv2.destroyAllWindows()
-
 
 input_path = 'data/test1/videos/video.mp4'
 get_frames(input_path)
 import sys
 sys.exit()
+
 # Reading the images and converting into B/W, if they aren't greyscale already
 # image = cv2.imread('pathtoimage')
 # gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -65,3 +66,4 @@ draw_params = dict(matchColor=(0, 255, 0),
 img3 = cv2.drawMatchesKnn(image1, kp1, image2, kp2, matches, None, **draw_params)
 plt.imshow(img3, )
 plt.show()
+
