@@ -9,30 +9,30 @@ def get_frames(input_path):
     frame_skip = 5
     # a variable to keep track of the frame to be saved
     frame_count = 0
-    while cap.isOpened():
+    while cap.isOpened() and frame_count<100*5: # putting a limit so only 100 images are processed first
         ret, frame = cap.read()
         if not ret:
             break
         if i > frame_skip - 1:
             frame_count += 1
-            cv2.imwrite('./images/' + str(frame_count * frame_skip) + '.jpg', frame)
+            cv2.imwrite('./data/test1/images/' + str(frame_count * frame_skip).zfill(5) + '.jpg', frame)
             i = 0
             continue
         i += 1
-
     cap.release()
     cv2.destroyAllWindows()
 
 
-input_path = './videos/video.mp4'
-# get_frames(input_path)
-
+input_path = 'data/test1/videos/video.mp4'
+get_frames(input_path)
+import sys
+sys.exit()
 # Reading the images and converting into B/W, if they aren't greyscale already
 # image = cv2.imread('pathtoimage')
 # gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-image1 = cv2.imread('./images/5.jpg')
-image2 = cv2.imread('./images/10.jpg')
+# image1 = cv2.imread('data/test1/images/5.jpg')
+# image2 = cv2.imread('data/test1/images/10.jpg')
 
 orb = cv2.ORB_create(nfeatures=2000)
 kp1, des1 = orb.detectAndCompute(image1, None)

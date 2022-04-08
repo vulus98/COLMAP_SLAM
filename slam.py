@@ -11,8 +11,8 @@ import hloc
 from hloc import reconstruction, extract_features, match_features
 from hloc.utils import viz_3d
 
-images = Path('data/frames/test1/')
-outputs = Path('out/test1/')
+images = Path('data/test1/images/')
+outputs = Path('output/test1/')
 sfm_pairs = outputs / 'pairs-sfm.txt'
 loc_pairs = outputs / 'pairs-loc.txt'
 sfm_dir = outputs / 'sfm'
@@ -90,6 +90,7 @@ if __name__ == '__main__':
     currFrameIdx = 0
     keypointIdx = 0
     frameNames = os.listdir(images)
+
     # Assuming the frames are indexed
     frameNames.sort()
 
@@ -102,18 +103,6 @@ if __name__ == '__main__':
         "des": des
     }
     keyframes.append(currentKeyframe)
-
-    # width = 100
-    # height = 100
-    # focal_length = 1
-    # cx = 0
-    # cy = 0
-    # camera = pycolmap.Camera(
-    # model='SIMPLE_PINHOLE',
-    # width=width,
-    # height=height,
-    # params=[focal_length, cx, cy],
-    # )
 
     camera = pycolmap.infer_camera_from_image(images / frameNames[currFrameIdx])
     reconstruction = pycolmap.Reconstruction()
@@ -159,7 +148,7 @@ if __name__ == '__main__':
 
         # 8 Just a chosen constant (at least 4 are needed for Homography)
         # if len(usedMatches) > 4:
-        if currFrameIdx % 5 == 0:
+        if currFrameIdx % 1 == 0: # TODO: Change this back to 5, and remove the pre-filter in video splitting step
             # Estimate RElative pose between the two images
             # TODO check type as in: https://github.com/colmap/colmap/blob/dev/src/estimators/two_view_geometry.h#L47-L67
             answer = pycolmap.two_view_geometry_estimation(
