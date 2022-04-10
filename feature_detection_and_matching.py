@@ -6,16 +6,16 @@ def get_frames(input_path):
     cap = cv2.VideoCapture(input_path)
     i = 0
     # a variable to set how many frames you want to skip
-    frame_skip = 5
+    frame_skip = 0
     # a variable to keep track of the frame to be saved
     frame_count = 0
-    while cap.isOpened() and frame_count<100*5: # putting a limit so only 100 images are processed first
+    while cap.isOpened() and frame_count<100: # putting a limit so only 100 images are processed first
         ret, frame = cap.read()
         if not ret:
             break
         if i > frame_skip - 1:
             frame_count += 1
-            cv2.imwrite('./data/test1/images/' + str(frame_count * frame_skip).zfill(5) + '.jpg', frame)
+            cv2.imwrite('./data/test1/images/' + str(frame_count * (frame_skip+1)).zfill(5) + '.jpg', frame)
             i = 0
             continue
         i += 1
