@@ -6,7 +6,7 @@ import cv2 as cv
 import numpy as np
 
 import pycolmap
-
+from matplotlib import pyplot as plt
 import hloc
 from hloc import reconstruction, extract_features, match_features
 from hloc.utils import viz_3d
@@ -19,20 +19,25 @@ sfm_dir = outputs / 'sfm'
 features = outputs / 'features.h5'
 matches = outputs / 'matches.h5'
 
+# FLANN is a nearest neighbour matching. Fast and less accurate.
+# HAMMING returns the best match, accurate but slow.
+
+MATCHER = "FLANN" # or HAMMING
+
+
 
 def orb_detector(img_pth, save=False, name='orb_out.jpg'):
     img = cv.imread(str(img_pth), 0)
-    # img = Image.open(img_pth)
     # Initiate ORB detector
-    orb = cv.ORB_create()
-    # find the keypoints with ORB
-    kp = orb.detect(img, None)
-    # compute the descriptors with ORB
-    kp, des = orb.compute(img, kp)
+    orb = cv.ORB_create(nfeatures=2000)
+    # find the keypoints and descriptors with ORB
+    kp, des = orb.detectAndCompute(img, None)
+
     if save:
         # draw only keypoints location,not size and orientation
         img2 = cv.drawKeypoints(img, kp, None, color=(0, 255, 0), flags=0)
         result = cv.imwrite(str(outputs / 'images/detector' / name), img2)
+
     return kp, des
 
 
@@ -53,6 +58,33 @@ def orb_matcher(keypoint, query, save=False, name='orb_out.jpg'):
     return matches
 
 
+def orb_matcher_FLANN(keypoint, query):
+    des1 = keypoint["des"]
+    des2 = query["des"]
+    # Nearest neighbour matching
+    FLANN_INDEX_KDTREE = 1
+    FLANN_INDEX_LSH = 6
+    index_params = dict(algorithm=FLANN_INDEX_LSH,
+                        table_number=6,  # 12
+                        key_size=12,  # 20
+                        multi_probe_level=1)
+    search_params = dict(checks=50)  # or pass empty dictionary
+    flann = cv.FlannBasedMatcher(index_params, search_params)
+    matches = flann.knnMatch(des1, des2, k=2)
+
+    # Need to draw only good matches, so create a mask
+    matchesMask = [[0, 0] for i in range(len(matches))]
+
+    # ratio test as per Lowe's paper
+    for i, (m, n) in enumerate(matches):
+        if m.distance < 0.7 * n.distance:  # If they are both equidistance, the ratio will be 1. Ambiguous, so discard.
+            matchesMask[i] = [1, 0]
+
+
+
+    return matches, matchesMask
+
+
 def draw_matches(current_keyframe, _detector, _matches, indx=0):
     img1 = cv.imread(str(images / current_keyframe["name"]), 0)
     img2 = cv.imread(str(images / _detector["name"]), 0)
@@ -61,6 +93,18 @@ def draw_matches(current_keyframe, _detector, _matches, indx=0):
                           flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
     name = "usedMatch_" + str(indx) + ".jpg"
     result = cv.imwrite(str(outputs / 'images/matcher' / name), img3)
+
+
+def draw_matches_knn(current_keyframe, _detector, _matches, indx=0):
+    img1 = cv.imread(str(images / current_keyframe["name"]), 0)
+    img2 = cv.imread(str(images / _detector["name"]), 0)
+    draw_params = dict(matchColor=(0, 255, 0),
+                       singlePointColor=(255, 0, 0),
+                       matchesMask=matchesMask,
+                       flags=cv.DrawMatchesFlags_DEFAULT)
+    img3 = cv.drawMatchesKnn(img1, current_keyframe["kp"], img2, _detector["kp"], matches, None, **draw_params)
+    name = "usedMatch_" + str(indx) + ".jpg"
+    cv.imwrite(str(outputs / 'images/matcher' / name), img3)
 
 
 def euc_dist_check(pt1, pt2):
@@ -147,7 +191,7 @@ if __name__ == '__main__':
     # img.SetImageId(0)
     # reconstruction.add_image(img)
 
-    #hloc.extract_features.main(hloc.extract_features.confs['superpoint_aachen'], images,
+    # hloc.extract_features.main(hloc.extract_features.confs['superpoint_aachen'], images,
     #                           image_list=frameNames[currFrameIdx], feature_path=features)
 
     triangulator = pycolmap.IncrementalTriangulator(graph, reconstruction)
@@ -156,52 +200,53 @@ if __name__ == '__main__':
     currFrameIdx += 1
     keypointIdx += 1
     while currFrameIdx < len(frameNames):
+        # 8 Just a chosen constant (at least 4 are needed for Homography)
+        # if len(usedMatches) > 4:
         kp, des = orb_detector(images / frameNames[currFrameIdx])
         detector = {
             "name": frameNames[currFrameIdx],
             "kp": kp,
             "des": des
         }
+
         # Extracts all matches
-        matches = orb_matcher(currentKeyframe, detector)
 
-        # 8 Just a chosen constant (at least 4 are needed for Homography)
-        # if len(usedMatches) > 4:
-        if currFrameIdx % 1 == 0: # TODO: Change this back to 5, and remove the pre-filter in video splitting step
-            # Estimate RElative pose between the two images
-            # TODO check type as in: https://github.com/colmap/colmap/blob/dev/src/estimators/two_view_geometry.h#L47-L67
-            answer = pycolmap.two_view_geometry_estimation(
-                [currentKeyframe["kp"][match.queryIdx].pt for match in matches],
-                [detector["kp"][match.trainIdx].pt for match in matches],
-                camera,
-                camera
-            )
+        matches, matchesMask = orb_matcher_FLANN(currentKeyframe, detector)
+        good_matches = [matches[i][0] for i in range(len(matches)) if matchesMask[i][0] == 1]
+        draw_matches_knn(currentKeyframe, detector, matches, indx=currentKeyframe["name"])
+        matches = good_matches
 
-            im = pycolmap.Image(id=keypointIdx, name=str(keypointIdx), camera_id=camera.camera_id, tvec=(old_im.tvec + answer["tvec"]), qvec=(old_im.qvec + answer["qvec"]))
-            #im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p, id_) for p, id_ in zip(p2d_obs, rec.points3D)])
-            points2D = [keypoint.pt for keypoint in kp]
-            im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
-            im.registered = True
-            reconstruction.add_image(im)
-            # reconstruction.add_point3D(old_im.tvec + answer["tvec"], pycolmap.Track(), np.zeros(3))
+        # Estimate Relative pose between the two images
+        answer = pycolmap.two_view_geometry_estimation(
+            [currentKeyframe["kp"][match.queryIdx].pt for match in matches],
+            [detector["kp"][match.trainIdx].pt for match in matches],
+            camera,
+            camera
+        )
 
-            matches = [(match.trainIdx, match.queryIdx) for match in matches]
-            matches = np.array(matches, dtype=np.uint32)
-            # add image and correspondence to graph
-            graph.add_image(im.image_id, len(im.points2D))
-            graph.add_correspondences(old_im.image_id, im.image_id, matches)
+        im = pycolmap.Image(id=keypointIdx, name=str(keypointIdx), camera_id=camera.camera_id,
+                            tvec=(old_im.tvec + answer["tvec"]), qvec=(old_im.qvec + answer["qvec"]))
+        # im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p, id_) for p, id_ in zip(p2d_obs, rec.points3D)])
+        points2D = [keypoint.pt for keypoint in kp]
+        im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
+        im.registered = True
+        reconstruction.add_image(im)
+        # reconstruction.add_point3D(old_im.tvec + answer["tvec"], pycolmap.Track(), np.zeros(3))
 
-            triangulator.triangulate_image(options, keypointIdx)
+        matches = [(match.trainIdx, match.queryIdx) for match in matches]
+        matches = np.array(matches, dtype=np.uint32)
+        # add image and correspondence to graph
+        graph.add_image(im.image_id, len(im.points2D))
+        graph.add_correspondences(old_im.image_id, im.image_id, matches)
 
-            # keyframes.append(detector)
-            currentKeyframe = detector
-            old_im = im
-            keypointIdx += 1
-            # print(currFrameIdx)
+        triangulator.triangulate_image(options, keypointIdx)
+
+        # keyframes.append(detector)
+        currentKeyframe = detector
+        old_im = im
+        keypointIdx += 1
+        # print(currFrameIdx)
         currFrameIdx += 1
-
-    # for i in range(0, keypointIdx):
-    #    triangulator.triangulate_image(options, i)
 
     fig = viz_3d.init_figure()
     viz_3d.plot_reconstruction(fig, reconstruction, min_track_length=0, color='rgb(255,0,0)')
