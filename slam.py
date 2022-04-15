@@ -48,16 +48,23 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frameNames.sort()
 
-    frameNames = frameNames[:200]
+    # frameNames = frameNames[:200]
 
-    camera = pycolmap.infer_camera_from_image(images / frameNames[currFrameIdx])
+    # camera = pycolmap.infer_camera_from_image(images / frameNames[currFrameIdx])
+    camera = pycolmap.Camera(
+        model='PINHOLE',
+        width=640,
+        height=480,
+        params=[525, 525, 319.5, 239.5],
+    )
+    camera.camera_id = 0
     reconstruction = pycolmap.Reconstruction()
     reconstruction.add_camera(camera)
     graph = pycolmap.CorrespondenceGraph()
 
-    max_reproj_error = 10.0
-    max_angle_error = 5.0
-    min_tri_angle = 5
+    max_reproj_error = 15.0
+    max_angle_error = 4.0
+    min_tri_angle = 0.5
 
     options = pycolmap.IncrementalTriangulatorOptions()
     options.create_max_angle_error = max_angle_error
@@ -70,14 +77,14 @@ if __name__ == '__main__':
     used_matcher = enums.Matchers.OrbHamming
 
     # TODO fix initialization
-    #map_initialization.initialize_map(images, frameNames, reconstruction, graph, triangulator, options, camera, used_matcher)
+    map_initialization.initialize_map(images, frameNames, reconstruction, graph, triangulator, options, camera, used_matcher)
 
     f = open(str(outputs / "estimation.txt"), "w")
     # f.write(img_to_name(currentKeyframe["name"], old_im))
 
     #currFrameIdx += 1
     #keypointIdx += 1
-    while currFrameIdx < len(frameNames):
+    while False and currFrameIdx < len(frameNames):
         if currFrameIdx % 15 == 0:
             kp, des = feature_detector.orb_detector(images / frameNames[currFrameIdx])
             detector = {
@@ -135,12 +142,12 @@ if __name__ == '__main__':
             keypointIdx += 1
         currFrameIdx += 1
 
-    num_completed_obs = triangulator.complete_all_tracks(options)
+    # num_completed_obs = triangulator.complete_all_tracks(options)
     # triangulator.merge_all_tracks(options)
     # triangulator.retriangulate(options)
-    num_merged_obs = triangulator.merge_all_tracks(options)
-    print(num_completed_obs)
-    print(num_merged_obs)
+    # num_merged_obs = triangulator.merge_all_tracks(options)
+    # print(num_completed_obs)
+    # print(num_merged_obs)
 
     f.close()
 
