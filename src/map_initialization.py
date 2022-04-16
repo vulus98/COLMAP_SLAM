@@ -4,7 +4,7 @@ import cv2
 import pyceres
 from pathlib import Path
 
-from src import features as feature_detector, enums
+from src import features as feature_detector, enums, optimization
 
 
 def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, traingulator_options, camera,
@@ -46,7 +46,8 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
             camera,
             camera
         )
-        print(answer["success"], ":", answer["configuration_type"])
+        print("Relative pose estimation", answer["success"], ":", answer["configuration_type"])
+        # TODO check if not degenerate etc.
         ''''
         .value("UNDEFINED", TwoViewGeometry::UNDEFINED)
         .value("DEGENERATE", TwoViewGeometry::DEGENERATE)
@@ -76,7 +77,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
             img_list.append(im.image_id)
             # det_list.append(detector2)
 
-    max_reproj_error = 10
+    max_reproj_error = 7
     max_angle_error = 2.0
     min_tri_angle = 1.5
 
@@ -99,62 +100,10 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     num_completed_obs = triangulator.complete_all_tracks(options)
     num_merged_obs = triangulator.merge_all_tracks(options)
 
-    print(num_completed_obs)
-    print(num_merged_obs)
+    print("num_completed_obs", num_completed_obs)
+    print("num_merged_obs", num_merged_obs)
 
     ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
+    optimization.global_BA(reconstruction, skip_pose=[old_im.image_id])
 
-    problem = define_problem(reconstruction)
-    solve(problem)
-
-    problem = define_problem2(reconstruction)
-    solve(problem)
-
-
-def define_problem(rec):
-    prob = pyceres.Problem()
-    loss = pyceres.TrivialLoss()
-    for im in rec.images.values():
-        cam = rec.cameras[im.camera_id]
-        for p in im.get_valid_points2D():
-            cost = pyceres.factors.BundleAdjustmentCost(cam.model_id, p.xy, im.qvec, im.tvec)
-            prob.add_residual_block(cost, loss, [rec.points3D[p.point3D_id].xyz, cam.params])
-    for cam in rec.cameras.values():
-        prob.set_parameter_block_constant(cam.params)
-    return prob
-
-
-def define_problem2(rec):
-    prob = pyceres.Problem()
-    loss = pyceres.TrivialLoss()
-    for im in rec.images.values():
-        cam = rec.cameras[im.camera_id]
-        for p in im.get_valid_points2D():
-            cost = pyceres.factors.BundleAdjustmentCost(cam.model_id, p.xy)
-            prob.add_residual_block(cost, loss, [im.qvec, im.tvec, rec.points3D[p.point3D_id].xyz, cam.params])
-        prob.set_parameterization(im.qvec, pyceres.QuaternionParameterization())
-    for cam in rec.cameras.values():
-        prob.set_parameter_block_constant(cam.params)
-    for p in rec.points3D.values():
-        prob.set_parameter_block_constant(p.xyz)
-    return prob
-
-
-def solve(prob):
-    print(prob.num_parameter_bocks(), prob.num_parameters(), prob.num_residual_blocks(), prob.num_residuals())
-    options = pyceres.SolverOptions()
-    options.linear_solver_type = pyceres.LinearSolverType.DENSE_QR
-    options.minimizer_progress_to_stdout = True
-    options.num_threads = -1
-    summary = pyceres.SolverSummary()
-    pyceres.solve(options, prob, summary)
-    print(summary.BriefReport())
-
-
-def reconstruct_homography(detector1, detector2, camera, matches):
-    answer2 = pycolmap.homography_matrix_estimation(
-        [detector1["kp"][match.queryIdx].pt for match in matches],
-        [detector2["kp"][match.trainIdx].pt for match in matches]
-    )
-    a = camera.CalibrtionMatrix()
-    num, Rs, Ts, Ns = cv2.decomposeHomographyMat(answer2["H"], camera.intrinsic)
+    return (ret_a > 100), currFrameIdx, detector2
