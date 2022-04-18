@@ -39,7 +39,7 @@ def matcher(img1, img2, used_matcher=enums.Matchers.OrbHamming, save=False, img_
 def orb_detector(img_pth, save=False, out_pth=Path(''), name='orb_out.jpg'):
     img = cv.imread(str(img_pth), 0)
     # Initiate ORB detector
-    orb = cv.ORB_create(nfeatures=2000)
+    orb = cv.ORB_create(nfeatures=500)
     # find the keypoints and descriptors with ORB
     kp, des = orb.detectAndCompute(img, None)
 

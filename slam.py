@@ -37,8 +37,8 @@ def good_matches(keypoint, query, matches):
 
 # Output corresponding to the evaluation of the TUM-RGBD dataset
 def img_to_name(name, img):
-    return name[:-4] + " " + str(img.tvec[0]) + " " + str(img.tvec[1]) + " " + str(img.tvec[2]) + " " + str(
-        img.qvec[0]) + " " + str(img.qvec[1]) + " " + str(img.qvec[2]) + " " + str(img.qvec[3]) + "\n"
+    return name[:-4] + " " + str(img.tvec[0]) + " " + str(img.tvec[1]) + " " + str(img.tvec[2]) + " "\
+           + str(img.qvec[1]) + " " + str(img.qvec[2]) + " " + str(img.qvec[3]) + " " + str(img.qvec[0]) + "\n"
 
 
 # Extracts from the matches of a query (as an detector dict) all the corresponding valid 3D points in the keyframe
@@ -47,7 +47,7 @@ def match_to_3D_correspondences(query_detector, keyframe_img, matches):
     keyframe_3D = []
     for match in matches:
         id_3D = keyframe_img.points2D[match.queryIdx].point3D_id
-        if id_3D >= 0 and id_3D < 18446744073709551615:
+        if 0 <= id_3D < 18446744073709551615:
             query_2D.append(query_detector["kp"][match.trainIdx].pt)
             a = reconstruction
             keyframe_3D.append(reconstruction.points3D[id_3D].xyz)
@@ -60,9 +60,9 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frameNames.sort()
 
-    frameNames = frameNames[:200]
+    frameNames = frameNames[:1000]
 
-    # camera = pycolmap.infer_camera_from_image(images / frameNames[currFrameIdx])
+    # camera = pycolmap.infer_camera_from_image(images / frameNames[0])
     camera = pycolmap.Camera(
         model='PINHOLE',
         width=640,
@@ -88,7 +88,7 @@ if __name__ == '__main__':
 
     used_matcher = enums.Matchers.OrbHamming
 
-    sucess, currFrameIdx, currentKeyframe = map_initialization.initialize_map(images, frameNames, reconstruction, graph,
+    success, currFrameIdx, currentKeyframe = map_initialization.initialize_map(images, frameNames, reconstruction, graph,
                                                                               triangulator, options, camera,
                                                                               used_matcher)
     keypointIdx = currFrameIdx
@@ -97,10 +97,20 @@ if __name__ == '__main__':
     old_im = reconstruction.find_image_with_name(str(keypointIdx))
 
     f = open(str(outputs / "estimation.txt"), "w")
-    # f.write(img_to_name(currentKeyframe["name"], old_im))
+    for c_img in reconstruction.images.values():
+        f.write(img_to_name(frameNames[c_img.image_id], c_img))
 
-    while currFrameIdx < len(frameNames):
-        if currFrameIdx % 1 == 0:
+    while success and currFrameIdx < len(frameNames):
+        # Testing and trying out different things. The static % operator has to be replaced by a better next keyframe
+        # decision. Always reporting the absolute translation error, see:
+        # https://vision.in.tum.de/data/datasets/rgbd-dataset/online_evaluation
+        # For the evaluation use freiburg2/xyz and the estimation.txt from out/test1/sfm
+        # % 15: 0.060727 m
+        # % 10: 0.045490 m
+        # % 5:  0.051728 m
+        # % 1:  0.054978 m
+        if currFrameIdx % 10 == 0:
+            # extracting keypoints snd the relative descriptors of an image
             kp, des = feature_detector.orb_detector(images / frameNames[currFrameIdx])
             detector = {
                 "name": frameNames[currFrameIdx],
@@ -111,6 +121,7 @@ if __name__ == '__main__':
             # Extracts all matches
             matches, matchesMask = feature_detector.matcher(currentKeyframe, detector, used_matcher)
 
+            # Functions that relates every keypoint in the image to a 3D point in the graph (if such a point exists)
             query_pts, keyframe_pts = match_to_3D_correspondences(detector, old_im, matches)
             # Estimate absolute pose of the query image
             answer = pycolmap.absolute_pose_estimation(query_pts,
@@ -121,12 +132,15 @@ if __name__ == '__main__':
                 print("Frame", currFrameIdx, "sucess")
                 im = pycolmap.Image(id=currFrameIdx, name=str(currFrameIdx), camera_id=camera.camera_id,
                                     tvec=(answer["tvec"]), qvec=(answer["qvec"]))
+                # For evaluation of dataset purposes
                 f.write(img_to_name(frameNames[currFrameIdx], im))
+
                 points2D = [keypoint.pt for keypoint in kp]
                 im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
                 im.registered = True
                 reconstruction.add_image(im)
 
+                # bring matches in the right form
                 matches = [(match.queryIdx, match.trainIdx) for match in matches]
                 matches = np.array(matches, dtype=np.uint32)
                 # matches = matches[np.array(answer["inliers"], dtype=bool)]
@@ -135,11 +149,14 @@ if __name__ == '__main__':
                 graph.add_image(im.image_id, len(im.points2D))
                 graph.add_correspondences(old_im.image_id, im.image_id, matches)
 
+                # Triangulate the ponits of the image based on the pose graph correlations and the 2D-3D correspondences
                 num_tri = triangulator.triangulate_image(options, im.image_id)
                 print("triangulated", num_tri, " new 3D points")
                 num_completed_obs = triangulator.complete_all_tracks(options)
                 num_merged_obs = triangulator.merge_all_tracks(options)
 
+                # Using optimization:
+                # % 10 from: 0.045490 m to 0.081492 m (decrease?!)
                 # optimization.motion_only_BA(reconstruction, [old_im.image_id, im.image_id])
                 # optimization.local_BA(reconstruction, [old_im.image_id, im.image_id])
 
@@ -153,6 +170,10 @@ if __name__ == '__main__':
                 keypointIdx += 1
             else:
                 print("Frame ", currFrameIdx, "failure: not able to estimate absolute pose")
+        # Using global BA after a certain increase in the model
+        # % 10 from: 0.045490 m to 0.073478 m
+        if currFrameIdx % 50 == 0:
+            optimization.global_BA(reconstruction, skip_pose=[0])
         currFrameIdx += 1
 
     # num_completed_obs = triangulator.complete_all_tracks(options)
