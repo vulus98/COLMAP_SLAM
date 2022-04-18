@@ -60,7 +60,7 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frameNames.sort()
 
-    frameNames = frameNames[:1000]
+    frameNames = frameNames[:500]
 
     # camera = pycolmap.infer_camera_from_image(images / frameNames[0])
     camera = pycolmap.Camera(
@@ -76,7 +76,7 @@ if __name__ == '__main__':
 
     max_reproj_error = 7.0
     max_angle_error = 2.0
-    min_tri_angle = 0.5
+    min_tri_angle = 1.5
 
     options = pycolmap.IncrementalTriangulatorOptions()
     options.create_max_angle_error = max_angle_error
@@ -155,6 +155,9 @@ if __name__ == '__main__':
                 num_completed_obs = triangulator.complete_all_tracks(options)
                 num_merged_obs = triangulator.merge_all_tracks(options)
 
+                ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
+                print("Filtered", ret_f, "3D points out")
+
                 # Using optimization:
                 # % 10 from: 0.045490 m to 0.081492 m (decrease?!)
                 # optimization.motion_only_BA(reconstruction, [old_im.image_id, im.image_id])
@@ -172,7 +175,7 @@ if __name__ == '__main__':
                 print("Frame ", currFrameIdx, "failure: not able to estimate absolute pose")
         # Using global BA after a certain increase in the model
         # % 10 from: 0.045490 m to 0.073478 m
-        if currFrameIdx % 50 == 0:
+        if currFrameIdx % 250 == 0:
             optimization.global_BA(reconstruction, skip_pose=[0])
         currFrameIdx += 1
 
