@@ -12,7 +12,7 @@ import slam
 from src import features as feature_detector, enums, optimization
 
 
-def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, traingulator_options, camera,
+def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, traingulator_options, camera, map_points,
                    used_matcher=enums.Matchers.OrbHamming):
     debug = True
     currFrameIdx = 0
@@ -44,7 +44,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
 
     img_list = []
     for i in range(3):
-        currFrameIdx += 5
+        currFrameIdx += 7
         kp_2, des_2 = feature_detector.orb_detector(img_pth / frameNames[currFrameIdx]) # , save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) + '.jpg'))
         detector2 = {
             "name": frameNames[currFrameIdx],
@@ -109,8 +109,6 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     options.complete_max_reproj_error = max_reproj_error
 
     ret_a = triangulator.triangulate_image(options, old_im.image_id)
-    if debug:
-        print("Initial traingulation yielded", ret_a, "3D points")
 
     fig1 = viz_3d.init_figure()
     viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(255,0,0)')
@@ -135,10 +133,19 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
         print("Filtered", ret_f, "3D points out")
     optimization.global_BA(reconstruction, skip_pose=[old_im.image_id])
 
+    # triangulator.retriangulate(options)
+
     viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(0,255,0)')
     # fig1.show()
 
-    return (ret_a > 100), currFrameIdx, detector2
+    # Fill the map_points
+    old_im = reconstruction.find_image_with_name(str(old_im.image_id))
+
+
+    ret_a = reconstruction.num_points3D()
+    if debug:
+        print("Initial traingulation yielded", ret_a, "3D points")
+    return (ret_a > 100), currFrameIdx
 
 
 # Not working, should show the difference between the keypoint and the reprojection back to the image of the estimated
