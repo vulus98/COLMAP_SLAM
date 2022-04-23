@@ -199,6 +199,7 @@ if __name__ == '__main__':
             num_completed_obs = triangulator.complete_all_tracks(options)
             num_merged_obs = triangulator.merge_all_tracks(options)
 
+            # ret_f = reconstruction.filter_points3D_in_images(max_reproj_error, min_tri_angle, {im.image_id})
             ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
             # print("Filtered", ret_f, "3D points out")
 
@@ -226,7 +227,7 @@ if __name__ == '__main__':
         # Using global BA after a certain increase in the model
         # % 10 from: 0.045490 m to 0.073478 m
         # if currFrameIdx % 250 == 0:
-        #    optimization.global_BA(reconstruction, skip_pose=[0])
+            # optimization.global_BA(reconstruction, skip_pose=[0])
         currFrameIdx += 1
 
     # num_completed_obs = triangulator.complete_all_tracks(options)
@@ -238,14 +239,15 @@ if __name__ == '__main__':
 
     f.close()
 
-    #rec = pycolmap.Reconstruction()
-    #for p in reconstruction.points3D.values():
-    #    rec.add_point3D(p.xyz, pycolmap.Track(), np.zeros(3))
-    #for im in [img for img in reconstruction.images if img.registered]:
-    #    rec.add_image(im)
+    rec = pycolmap.Reconstruction()
+    rec.add_camera(camera)
+    for p in reconstruction.points3D.values():
+        rec.add_point3D(p.xyz, pycolmap.Track(), np.zeros(3))
+    for im in [img for img in reconstruction.images.values() if img.registered]:
+        rec.add_image(im)
     reconstruction.export_PLY(exports)
     # rec.export_PLY(points_exports)
 
     fig = viz_3d.init_figure()
-    viz_3d.plot_reconstruction(fig, reconstruction, min_track_length=0, color='rgb(255,0,0)')
+    viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(255,0,0)')
     fig.show()

@@ -16,7 +16,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
                    used_matcher=enums.Matchers.OrbHamming):
     debug = True
     currFrameIdx = 0
-    kp_1, des_1 = feature_detector.detector(img_pth / frameNames[currFrameIdx], used_matcher) #, save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) +  '.jpg'))
+    kp_1, des_1 = feature_detector.detector(img_pth / frameNames[currFrameIdx], used_matcher) # , save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) +  '.jpg'))
     # det_list = []
     detector1 = {
         "name": frameNames[currFrameIdx],
@@ -24,18 +24,18 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
         "des": des_1
     }
     # Rotation and translation of the first image
-    # R = np.eye(3)
-    # qr = pycolmap.rotmat_to_qvec(R)
-    # tv = [0, 0, 0]
+    R = np.eye(3)
+    qr = pycolmap.rotmat_to_qvec(R)
+    tv = [0, 0, 0]
     # For TUM freiburg2_xyz evaluation use image 0 with :
     # timestamp tx ty tz qx qy qz qw
     # 1311867170.4622 0.1163 -1.1498 1.4015 -0.5721 0.6521 -0.3565 0.3469
-    tv = [0.1163, -1.1498, 1.4015]
-    qr = [0.3469, -0.5721, 0.6521, -0.3565]
-    R = pycolmap.qvec_to_rotmat(qr)
+    # tv = [0.1163, -1.1498, 1.4015]
+    # qr = [0.3469, -0.5721, 0.6521, -0.3565]
+    # R = pycolmap.qvec_to_rotmat(qr)
     old_im = pycolmap.Image(id=currFrameIdx, name=str(currFrameIdx),
                             camera_id=camera.camera_id, tvec=tv,
-                            qvec=qr)  # , tvec=[0, 0, 0], qvec=[1, 0, 0, 0])
+                            qvec=qr)
     old_im.registered = True
     points2D_1 = [keypoint.pt for keypoint in kp_1]
     old_im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D_1])
@@ -45,7 +45,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     img_list = []
     for i in range(3):
         currFrameIdx += 7
-        kp_2, des_2 = feature_detector.orb_detector(img_pth / frameNames[currFrameIdx]) # , save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) + '.jpg'))
+        kp_2, des_2 = feature_detector.orb_detector(img_pth / frameNames[currFrameIdx]) #, save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) + '.jpg'))
         detector2 = {
             "name": frameNames[currFrameIdx],
             "kp": kp_2,
@@ -82,9 +82,12 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
             # https://math.stackexchange.com/questions/709622/relative-camera-matrix-pose-from-global-camera-matrixes
             # R_answ = R_2^T @ R_1  ==>  R_2 @ R_answ = R_1  ==> R_2 = R_answ = R_1 @ R_answ^T
             # t_answ = R^T @ (tv - tv2) ==> R @ t_answ = tv - tv2 ==> tv2 = tv - R @ t_answ
-            R2 = R @ np.transpose(pycolmap.qvec_to_rotmat(answer["qvec"]))
-            qr2 = pycolmap.rotmat_to_qvec(R2)
-            tv2 = tv - R @ answer["tvec"]
+            # R2 = R @ np.transpose(pycolmap.qvec_to_rotmat(answer["qvec"]))
+            # qr2 = pycolmap.rotmat_to_qvec(R2)
+            # tv2 = tv - R @ answer["tvec"]
+
+            tv2 = answer["tvec"]
+            qr2 = answer["qvec"]
             im = pycolmap.Image(id=currFrameIdx, name=str(currFrameIdx), camera_id=camera.camera_id,
                                 tvec=tv2, qvec=qr2)
             im.registered = True
@@ -114,7 +117,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     ret_a = triangulator.triangulate_image(options, old_im.image_id)
 
     fig1 = viz_3d.init_figure()
-    viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(255,0,0)')
+    viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(255,0,0)', name='no optimization')
 
     # for id in img_list:
     # for id2 in img_list[(img_list.index(id) + 1):]:
@@ -138,11 +141,11 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
 
     # triangulator.retriangulate(options)
 
-    viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(0,255,0)')
+    viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(0,255,0)', name='global BA')
     # fig1.show()
 
     # Fill the map_points
-    old_im = reconstruction.find_image_with_name(str(old_im.image_id))
+    # old_im = reconstruction.find_image_with_name(str(old_im.image_id))
 
 
     ret_a = reconstruction.num_points3D()
