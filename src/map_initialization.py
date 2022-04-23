@@ -24,15 +24,15 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
         "des": des_1
     }
     # Rotation and translation of the first image
-    R = np.eye(3)
-    qr = pycolmap.rotmat_to_qvec(R)
-    tv = [0, 0, 0]
+    # R = np.eye(3)
+    # qr = pycolmap.rotmat_to_qvec(R)
+    # tv = [0, 0, 0]
     # For TUM freiburg2_xyz evaluation use image 0 with :
     # timestamp tx ty tz qx qy qz qw
     # 1311867170.4622 0.1163 -1.1498 1.4015 -0.5721 0.6521 -0.3565 0.3469
-    # tv = [0.1163, -1.1498, 1.4015]
-    # qr = [0.3469, -0.5721, 0.6521, -0.3565]
-    # R = pycolmap.qvec_to_rotmat(qr)
+    tv = [0.1163, -1.1498, 1.4015]
+    qr = [0.3469, -0.5721, 0.6521, -0.3565]
+    R = pycolmap.qvec_to_rotmat(qr)
     old_im = pycolmap.Image(id=currFrameIdx, name=str(currFrameIdx),
                             camera_id=camera.camera_id, tvec=tv,
                             qvec=qr)  # , tvec=[0, 0, 0], qvec=[1, 0, 0, 0])
@@ -79,9 +79,12 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
         if b:
             # Rotation of the other images relative to the first one
             # If our first image is not placed at the origin
-            R2 = R @ pycolmap.qvec_to_rotmat(answer["qvec"])
+            # https://math.stackexchange.com/questions/709622/relative-camera-matrix-pose-from-global-camera-matrixes
+            # R_answ = R_2^T @ R_1  ==>  R_2 @ R_answ = R_1  ==> R_2 = R_answ = R_1 @ R_answ^T
+            # t_answ = R^T @ (tv - tv2) ==> R @ t_answ = tv - tv2 ==> tv2 = tv - R @ t_answ
+            R2 = R @ np.transpose(pycolmap.qvec_to_rotmat(answer["qvec"]))
             qr2 = pycolmap.rotmat_to_qvec(R2)
-            tv2 = tv + answer["tvec"]
+            tv2 = tv - R @ answer["tvec"]
             im = pycolmap.Image(id=currFrameIdx, name=str(currFrameIdx), camera_id=camera.camera_id,
                                 tvec=tv2, qvec=qr2)
             im.registered = True

@@ -68,7 +68,7 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frameNames.sort()
 
-    # frameNames = frameNames[:min(len(frameNames), 300)]
+    frameNames = frameNames[:min(len(frameNames), 1000)]
 
     # TODO: look into hloc and preprocess feature extraction and matching
     # retrieval_path = extract_features.main(retrieval_conf, images, image_list=frameNames, feature_path=features)
@@ -80,7 +80,7 @@ if __name__ == '__main__':
     # pairs_from_exhaustive.main(sfm_pairs, image_list=frameNames)
     # match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches);
 
-    camera = pycolmap.infer_camera_from_image(images / frameNames[0])
+    # camera = pycolmap.infer_camera_from_image(images / frameNames[0])
 
     # Camera for Freiburg2/xyz
     camera = pycolmap.Camera(
@@ -187,13 +187,12 @@ if __name__ == '__main__':
             # print("Frame", currFrameIdx, "sucess")
             im = pycolmap.Image(id=currFrameIdx, name=str(currFrameIdx), camera_id=camera.camera_id,
                                 tvec=(answer["tvec"]), qvec=(answer["qvec"]))
-            # For evaluation of dataset purposes
-            f.write(img_to_name(frameNames[currFrameIdx], im))
 
             im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
             im.registered = True
             reconstruction.add_image(im)
 
+            # TODO should be done after motion only BA and for motuion only ba just use the inliers
             # Triangulate the points of the image based on the pose graph correlations and the 2D-3D correspondences
             num_tri = triangulator.triangulate_image(options, im.image_id)
             # print("triangulated", num_tri, " new 3D points")
@@ -203,19 +202,22 @@ if __name__ == '__main__':
             ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
             # print("Filtered", ret_f, "3D points out")
 
-            # Using optimization:
-            # % 10 from: 0.045490 m to 0.081492 m (decrease?!)
+            # Using optimization to correct the image pose:
             optimization.motion_only_BA(reconstruction, [im.image_id])
-            # optimization.local_BA(reconstruction, [old_im.image_id, im.image_id])
 
-            num_tri = triangulator.triangulate_image(options, im.image_id)
-            # print(num_completed_obs)
-            # print(num_merged_obs)
+            # num_trib = triangulator.triangulate_image(options, im.image_id)
+            # print("triangulated", num_tri, " new 3D points")
+            # num_completed_obs = triangulator.complete_all_tracks(options)
+            # num_merged_obs = triangulator.merge_all_tracks(options)
+
+            # ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
 
             # E. New Keyframe Decision (See orb slam paper, missing 1) and 3) )
             if currFrameIdx - last_keyframeidx > 20 and reconstruction.images[currFrameIdx].num_points3D() < 0.9 * reconstruction.images[last_keyframeidx].num_points3D():
                 last_keyframeidx = currFrameIdx
                 keyframe_idxes.append(currFrameIdx)
+                # For evaluation of dataset purposes
+                f.write(img_to_name(frameNames[currFrameIdx], reconstruction.images[im.image_id]))
             else:
                 reconstruction.deregister_image(im.image_id)
         else:
@@ -224,7 +226,7 @@ if __name__ == '__main__':
         # Using global BA after a certain increase in the model
         # % 10 from: 0.045490 m to 0.073478 m
         # if currFrameIdx % 250 == 0:
-        # optimization.global_BA(reconstruction, skip_pose=[0])
+        #    optimization.global_BA(reconstruction, skip_pose=[0])
         currFrameIdx += 1
 
     # num_completed_obs = triangulator.complete_all_tracks(options)
@@ -236,11 +238,14 @@ if __name__ == '__main__':
 
     f.close()
 
+    #rec = pycolmap.Reconstruction()
+    #for p in reconstruction.points3D.values():
+    #    rec.add_point3D(p.xyz, pycolmap.Track(), np.zeros(3))
+    #for im in [img for img in reconstruction.images if img.registered]:
+    #    rec.add_image(im)
+    reconstruction.export_PLY(exports)
+    # rec.export_PLY(points_exports)
+
     fig = viz_3d.init_figure()
     viz_3d.plot_reconstruction(fig, reconstruction, min_track_length=0, color='rgb(255,0,0)')
     fig.show()
-    #rec = pycolmap.Reconstruction()
-    #for p in reconstruction.points3D.values():
-        #rec.add_point3D(p.xyz, pycolmap.Track(), np.zeros(3))
-    reconstruction.export_PLY(exports)
-    #rec.export_PLY(points_exports)
