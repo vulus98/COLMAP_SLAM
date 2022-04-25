@@ -53,7 +53,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
         }
 
         # matches mask is empty for used_matcher=slam.Matchers.Hamming
-        matches, matchesMask = feature_detector.matcher(detector1, detector2, used_matcher)
+        matches, matchesMask = feature_detector.matcher(detector1, detector2, used_matcher) #, save=True, img_pth=img_pth, out_pth=slam.outputs)
 
         # Estimate Relative pose between the two images
         answer = pycolmap.two_view_geometry_estimation(
