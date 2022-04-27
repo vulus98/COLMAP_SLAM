@@ -142,7 +142,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     # triangulator.retriangulate(options)
 
     viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(0,255,0)', name='global BA')
-    # fig1.show()
+    fig1.show()
 
     # Fill the map_points
     # old_im = reconstruction.find_image_with_name(str(old_im.image_id))

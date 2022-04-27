@@ -2,7 +2,9 @@ import os
 from pathlib import Path
 import numpy as np
 import pycolmap
-from hloc import extract_features, match_features, visualization, pairs_from_exhaustive, pairs_from_retrieval
+import hloc
+from hloc import extract_features, match_features, visualization, pairs_from_exhaustive, pairs_from_retrieval, \
+    reconstruction
 from src import features as feature_detector
 from src import map_initialization, enums, optimization
 from hloc.utils import viz_3d
@@ -19,8 +21,11 @@ exports = outputs / 'reconstruction.ply'
 points_exports = outputs / 'reconstruction_points.ply'
 
 retrieval_conf = extract_features.confs['netvlad']
-feature_conf = extract_features.confs['sift']
-matcher_conf = match_features.confs['NN-ratio']
+# feature_conf = extract_features.confs['sift']
+# matcher_conf = match_features.confs['NN-ratio']
+
+feature_conf = extract_features.confs['superpoint_aachen']
+matcher_conf = match_features.confs['superglue']
 
 
 # FLANN is a nearest neighbour matching. Fast and less accurate.
@@ -68,7 +73,7 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frameNames.sort()
 
-    frameNames = frameNames[:min(len(frameNames), 1000)]
+    frameNames = frameNames[:min(len(frameNames), 100)]
 
     # TODO: look into hloc and preprocess feature extraction and matching
     # retrieval_path = extract_features.main(retrieval_conf, images, image_list=frameNames, feature_path=features)
@@ -114,11 +119,28 @@ if __name__ == '__main__':
     # Stores all the 3D map points that are currently in the reconstruction and its feature descriptor
     map_points = {}
 
+    """ for SFM map init with hloc uncomment the lines
+    references = frameNames[:20]
+    extract_features.main(feature_conf, images, image_list=references, feature_path=features)
+    pairs_from_exhaustive.main(sfm_pairs, image_list=references)
+    match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)
+
+    model = hloc.reconstruction.main(sfm_dir, images, sfm_pairs, features, matches, image_list=references)
+    model.add_camera(camera)
+    # This overwrites the reconstruction using SFM map initialization
+    reconstruction = model
+    currFrameIdx = 20
+
+    # Bc of pycolmap indexing start with 0
+    frameNames.insert(0, "")
+    success = True
+    """
+
     success, currFrameIdx = map_initialization.initialize_map(images, frameNames, reconstruction,
-                                                                               graph,
-                                                                               triangulator, options, camera,
-                                                                               map_points,
-                                                                               used_matcher)
+                                                              graph,
+                                                              triangulator, options, camera,
+                                                              map_points,
+                                                              used_matcher)
     last_keyframeidx = currFrameIdx
     currFrameIdx += 1
 
@@ -127,6 +149,7 @@ if __name__ == '__main__':
     # old_im = reconstruction.find_image_with_name(str(last_keyframeidx))
 
     f = open(str(outputs / "estimation.txt"), "w")
+    references = []
     for c_img in reconstruction.images.values():
         keyframe_idxes.append(c_img.image_id)
         # extracting keypoints snd the relative descriptors of an image
@@ -137,6 +160,14 @@ if __name__ == '__main__':
             "des": des
         }
         f.write(img_to_name(frameNames[c_img.image_id], c_img))
+        # references.append(frameNames[c_img.image_id])
+
+    keyframe_idxes.sort()
+
+    # fig = viz_3d.init_figure()
+    # viz_3d.plot_reconstruction(fig, model, color='rgba(255,0,0,0.5)', name="mapping")
+    # viz_3d.plot_reconstruction(fig, reconstruction, color='rgba(0,255,0,0.5)', name="map_init")
+    # fig.show()
 
     while success and currFrameIdx < len(frameNames):
         old_im = reconstruction.images[last_keyframeidx]
@@ -165,7 +196,8 @@ if __name__ == '__main__':
             matches, matchesMask = feature_detector.matcher(detector_map[idx], detector_map[currFrameIdx],
                                                             used_matcher)
             # Functions that relates every keypoint in the image to a 3D point in the graph (if such a point exists)
-            query_pts, keyframe_pts = match_to_3D_correspondences(detector_map[currFrameIdx], reconstruction.images[idx], matches)
+            query_pts, keyframe_pts = match_to_3D_correspondences(detector_map[currFrameIdx],
+                                                                  reconstruction.images[idx], matches)
             for (q_pt, k_pt) in zip(query_pts, keyframe_pts):
                 if q_pt not in q_pts:
                     q_pts.append(q_pt)
@@ -214,7 +246,8 @@ if __name__ == '__main__':
             # ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
 
             # E. New Keyframe Decision (See orb slam paper, missing 1) and 3) )
-            if currFrameIdx - last_keyframeidx > 20 and reconstruction.images[currFrameIdx].num_points3D() < 0.9 * reconstruction.images[last_keyframeidx].num_points3D():
+            if currFrameIdx - last_keyframeidx > 20 and reconstruction.images[currFrameIdx].num_points3D() < 0.9 * \
+                    reconstruction.images[last_keyframeidx].num_points3D():
                 last_keyframeidx = currFrameIdx
                 keyframe_idxes.append(currFrameIdx)
                 # For evaluation of dataset purposes
@@ -226,8 +259,8 @@ if __name__ == '__main__':
 
         # Using global BA after a certain increase in the model
         # % 10 from: 0.045490 m to 0.073478 m
-        # if currFrameIdx % 250 == 0:
-            # optimization.global_BA(reconstruction, skip_pose=[0])
+        if currFrameIdx % 250 == 0:
+            optimization.global_BA(reconstruction, skip_pose=[0])
         currFrameIdx += 1
 
     # num_completed_obs = triangulator.complete_all_tracks(options)
