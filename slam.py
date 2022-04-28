@@ -2,30 +2,23 @@ import os
 from pathlib import Path
 import numpy as np
 import pycolmap
-import hloc
-from hloc import extract_features, match_features, visualization, pairs_from_exhaustive, pairs_from_retrieval, \
-    reconstruction
-from src import features as feature_detector
+from src import features
 from src import map_initialization, enums, optimization
 from hloc.utils import viz_3d
+
+
 
 # images = Path('data/frames/test1/')
 images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
 outputs = Path('out/test1/')
-sfm_pairs = outputs / 'pairs-sfm.txt'
-loc_pairs = outputs / 'pairs-loc.txt'
-sfm_dir = outputs / 'sfm'
-features = outputs / 'features.h5'
-matches = outputs / 'matches.h5'
+#sfm_pairs = outputs / 'pairs-sfm.txt'
+#loc_pairs = outputs / 'pairs-loc.txt'
+#sfm_dir = outputs / 'sfm'
+#features = outputs / 'features.h5'
+#matches = outputs / 'matches.h5'
 exports = outputs / 'reconstruction.ply'
-points_exports = outputs / 'reconstruction_points.ply'
+#points_exports = outputs / 'reconstruction_points.ply'
 
-retrieval_conf = extract_features.confs['netvlad']
-# feature_conf = extract_features.confs['sift']
-# matcher_conf = match_features.confs['NN-ratio']
-
-feature_conf = extract_features.confs['superpoint_aachen']
-matcher_conf = match_features.confs['superglue']
 
 
 # FLANN is a nearest neighbour matching. Fast and less accurate.
@@ -55,13 +48,13 @@ def img_to_name(name, img):
 
 
 # Extracts from the matches of a query (as an detector dict) all the corresponding valid 3D points in the keyframe
-def match_to_3D_correspondences(query_detector, keyframe_img, matches):
+def match_to_3D_correspondences(query_detector_kps, keyframe_img, matches):
     query_2D = []
     keyframe_3D = []
     for match in matches:
         id_3D = keyframe_img.points2D[match.queryIdx].point3D_id
         if 0 <= id_3D < 18446744073709551615:
-            query_2D.append(query_detector["kp"][match.trainIdx].pt)
+            query_2D.append(query_detector_kps[match.trainIdx].pt)
             a = reconstruction
             keyframe_3D.append(reconstruction.points3D[id_3D].xyz)
     return query_2D, keyframe_3D
@@ -73,7 +66,7 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frameNames.sort()
 
-    frameNames = frameNames[:min(len(frameNames), 100)]
+    frameNames = frameNames[:min(len(frameNames), 500)]
 
     # TODO: look into hloc and preprocess feature extraction and matching
     # retrieval_path = extract_features.main(retrieval_conf, images, image_list=frameNames, feature_path=features)
@@ -114,7 +107,10 @@ if __name__ == '__main__':
     triangulator = pycolmap.IncrementalTriangulator(graph, reconstruction)
 
     # The chose feature detector and matcher
+    used_extractor=enums.Extractors.ORB
     used_matcher = enums.Matchers.OrbHamming
+
+    extractor,matcher=features.init(used_extractor,used_matcher)
 
     # Stores all the 3D map points that are currently in the reconstruction and its feature descriptor
     map_points = {}
@@ -140,7 +136,8 @@ if __name__ == '__main__':
                                                               graph,
                                                               triangulator, options, camera,
                                                               map_points,
-                                                              used_matcher)
+                                                              extractor,matcher,
+                                                              used_extractor,used_matcher)
     last_keyframeidx = currFrameIdx
     currFrameIdx += 1
 
@@ -153,12 +150,8 @@ if __name__ == '__main__':
     for c_img in reconstruction.images.values():
         keyframe_idxes.append(c_img.image_id)
         # extracting keypoints snd the relative descriptors of an image
-        kp, des = feature_detector.orb_detector(images / frameNames[c_img.image_id])
-        detector_map[c_img.image_id] = {
-            "name": frameNames[c_img.image_id],
-            "kp": kp,
-            "des": des
-        }
+        kp, detector_map[c_img.image_id] = features.detector(images,frameNames[c_img.image_id],extractor,used_extractor)
+
         f.write(img_to_name(frameNames[c_img.image_id], c_img))
         # references.append(frameNames[c_img.image_id])
 
@@ -175,12 +168,7 @@ if __name__ == '__main__':
         # For the evaluation use freiburg2/xyz and the estimation.txt from out/test1/sfm
 
         # extracting keypoints snd the relative descriptors of an image
-        kp, des = feature_detector.orb_detector(images / frameNames[currFrameIdx])
-        detector_map[currFrameIdx] = {
-            "name": frameNames[currFrameIdx],
-            "kp": kp,
-            "des": des
-        }
+        kp, detector_map[currFrameIdx] = features.detector(images ,frameNames[currFrameIdx],extractor,used_extractor)
 
         points2D = [keypoint.pt for keypoint in kp]
         # add image and correspondence to graph
@@ -193,10 +181,10 @@ if __name__ == '__main__':
         # Goes over the last keyframes and checks all matches to make an estimation of the global camera pose
         for idx in last_keyframes:
             # Extracts all matches
-            matches, matchesMask = feature_detector.matcher(detector_map[idx], detector_map[currFrameIdx],
-                                                            used_matcher)
+            matches = features.matcher(detector_map[idx], detector_map[currFrameIdx],matcher,
+                                                    used_matcher)
             # Functions that relates every keypoint in the image to a 3D point in the graph (if such a point exists)
-            query_pts, keyframe_pts = match_to_3D_correspondences(detector_map[currFrameIdx],
+            query_pts, keyframe_pts = match_to_3D_correspondences(kp,
                                                                   reconstruction.images[idx], matches)
             for (q_pt, k_pt) in zip(query_pts, keyframe_pts):
                 if q_pt not in q_pts:

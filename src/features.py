@@ -1,6 +1,8 @@
 import cv2 as cv
 from pathlib import Path
 from src import enums
+from hloc import extract_features,match_features,extractors,matchers,utils
+import torch
 '''
     This function should be called when detecting features.
     img_pth corresponds to the path of the image
@@ -8,13 +10,43 @@ from src import enums
     save is boolean and indicates if the features should be saved as an image on the disk
     out_pth and name correspond to the saved image output pth and name
 '''
+def init(used_extractor,used_matcher):
+    if used_extractor == enums.Extractors.ORB:
+        extractor=cv.ORB_create(nfeatures=1000)
+    elif used_extractor == enums.Extractors.SuperPoint:
+        feature_conf = extract_features.confs['superpoint_aachen']
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        Model = utils.base_model.dynamic_load(extractors, feature_conf['model']['name'])
+        extractor = Model(feature_conf['model']).eval().to(device) 
 
+    if used_matcher == enums.Matchers.OrbHamming:
+        matcher=cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
+    elif used_matcher == enums.Matchers.OrbFlann:
+        FLANN_INDEX_LSH = 6
+        index_params = dict(algorithm=FLANN_INDEX_LSH,
+                            table_number=6,  # 12
+                            key_size=12,  # 20
+                            multi_probe_level=1)
+        search_params = dict(checks=50)  # or pass empty dictionary
+        matcher = cv.FlannBasedMatcher(index_params, search_params)
+    elif used_matcher == enums.Matchers.SuperGlue:
+        matcher_conf = match_features.confs['superglue']
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        Model = utils.base_model.dynamic_load(matchers, matcher_conf['model']['name'])
+        matcher = Model(matcher_conf['model']).eval().to(device)
+    return extractor,matcher
 
-def detector(img_pth, used_matcher=enums.Matchers.OrbHamming, save=False, out_pth=Path(''), name='orb_out.jpg'):
-    if used_matcher == enums.Matchers.OrbHamming or used_matcher == enums.Matchers.OrbFlann:
-        return orb_detector(img_pth, save, out_pth, name)
-    # TODO implement SuperPoint
-    # elif used_matcher == slam.Matchers.SuperPoint:
+def detector(img_pth, img_name,extractor,used_extractor=enums.Extractors.ORB, save=False, out_pth=Path(''), name='orb_out.jpg'):
+    if used_extractor == enums.Extractors.ORB:
+        kp,des=orb_detector(extractor,img_pth/img_name, save, out_pth, name)
+        detector = {
+            "name": img_name,
+            "kp": kp,
+            "des": des
+        }
+        return kp,detector
+    elif used_extractor == enums.Extractors.SuperPoint:
+        return SuperPoint_detector(extractor,img_pth/img_name,save,out_pth,name)
 
 
 '''
@@ -29,17 +61,18 @@ def detector(img_pth, used_matcher=enums.Matchers.OrbHamming, save=False, out_pt
 '''
 
 
-def matcher(img1, img2, used_matcher=enums.Matchers.OrbHamming, save=False, img_pth=Path(''), out_pth=Path('')):
+def matcher(img1, img2, matcher,used_matcher=enums.Matchers.OrbHamming, save=False, img_pth=Path(''), out_pth=Path('')):
     if used_matcher == enums.Matchers.OrbHamming:
-        return orb_matcher(img1, img2, save, img_pth, out_pth), []
+        return orb_matcher(matcher,img1, img2, save, img_pth, out_pth)
     elif used_matcher == enums.Matchers.OrbFlann:
-        return orb_matcher_FLANN(img1, img2)
+        return orb_matcher_FLANN(matcher,img1, img2)
+    elif used_matcher == enums.Matchers.SuperGlue:
+        return SuperGlue_matcher(matcher,img1,img2)
 
 
-def orb_detector(img_pth, save=False, out_pth=Path(''), name='orb_out.jpg'):
+def orb_detector(orb,img_pth,save=False, out_pth=Path(''), name='orb_out.jpg'):
     img = cv.imread(str(img_pth), 0)
     # Initiate ORB detector
-    orb = cv.ORB_create(nfeatures=1000)
     # find the keypoints and descriptors with ORB
     kp, des = orb.detectAndCompute(img, None)
 
@@ -50,13 +83,38 @@ def orb_detector(img_pth, save=False, out_pth=Path(''), name='orb_out.jpg'):
 
     return kp, des
 
+@torch.no_grad()
+def SuperPoint_detector(extractor,img_pth,save,out_pth,name):
+    img = cv.imread(str(img_pth),0)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    img_tens=torch.unsqueeze(torch.FloatTensor(img.astype(float)/255),dim=0)
+    img_tens=torch.unsqueeze(img_tens,dim=0)
+    size_tens=torch.unsqueeze(torch.tensor(img.shape),dim=0)
+    data={ 
+        'name': [name],
+        'image': img_tens,
+        'original_size':size_tens,
+    }
 
-def orb_matcher(keypoint, query, save=False, img_pth=Path(''), out_pth=Path('')):
+    pred = extractor(utils.tools.map_tensor(data, lambda x: x.to(device)))
+    pred = {k: v[0].cpu().detach().numpy() for k, v in pred.items()}
+    torch.squeeze(size_tens,dim=0)
+    pred.update({'image_size': size_tens})
+
+    kps=[]
+    for kp in pred['keypoints']: 
+        kps.append(cv.KeyPoint(kp[0],kp[1],size=1))
+    
+    if save:
+        # draw only keypoints location,not size and orientation
+        img2 = cv.drawKeypoints(img, kp, None, color=(0, 255, 0), flags=0)
+        cv.imwrite(str(out_pth / 'images/detector' / name), img2)
+    return kps,pred
+
+def orb_matcher(bf,keypoint, query, save=False, img_pth=Path(''), out_pth=Path('')):
     des1 = keypoint["des"]
     des2 = query["des"]
 
-    # create BFMatcher object
-    bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
     # Match descriptors.
     matches = bf.match(des1, des2)
     # Sort them in the order of their distance.
@@ -66,18 +124,10 @@ def orb_matcher(keypoint, query, save=False, img_pth=Path(''), out_pth=Path(''))
     return matches
 
 
-def orb_matcher_FLANN(keypoint, query):
+def orb_matcher_FLANN(flann,keypoint, query):
     des1 = keypoint["des"]
     des2 = query["des"]
     # Nearest neighbour matching
-    FLANN_INDEX_KDTREE = 1
-    FLANN_INDEX_LSH = 6
-    index_params = dict(algorithm=FLANN_INDEX_LSH,
-                        table_number=6,  # 12
-                        key_size=12,  # 20
-                        multi_probe_level=1)
-    search_params = dict(checks=50)  # or pass empty dictionary
-    flann = cv.FlannBasedMatcher(index_params, search_params)
     matches = flann.knnMatch(des1, des2, k=2)
 
     # Need to draw only good matches, so create a mask
@@ -87,7 +137,32 @@ def orb_matcher_FLANN(keypoint, query):
     for i, (m, n) in enumerate(matches):
         if m.distance < 0.7 * n.distance:  # If they are both equidistant, the ratio will be 1. Ambiguous, so discard.
             matchesMask[i] = [1, 0]
-    return matches, matchesMask
+    return matches
+
+@torch.no_grad()
+def SuperGlue_matcher(matcher,img1_data,img2_data):
+    data={}
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    for k, v in img1_data.items():
+        data[k+'0'] = torch.from_numpy(v.__array__()).float().to(device)
+            # some matchers might expect an image but only use its size
+        data['image0'] = torch.empty((1,)+(img1_data['image_size'][0][0],img1_data['image_size'][0][1])[::-1])
+    for k, v in img2_data.items():
+        data[k+'1'] = torch.from_numpy(v.__array__()).float().to(device)
+            # some matchers might expect an image but only use its size
+        data['image1'] = torch.empty((1,)+(img2_data['image_size'][0][0],img2_data['image_size'][0][1])[::-1])
+    data = {k: v[None] for k, v in data.items()}
+    matches_data = matcher(data)
+    matches = matches_data['matches0'][0].cpu().short().numpy()
+    scores = matches_data['matching_scores0'][0].cpu().half().numpy()
+    matches_list=[]
+    i=0
+    for match,score in zip(matches,scores):
+        if not(match==-1):
+            matches_list.append(cv.DMatch(_queryIdx=i,_trainIdx=match,_distance=-score))
+        i=i+1
+
+    return sorted(matches_list, key = lambda x:x.distance)
 
 
 def draw_matches(current_keyframe, _detector, _matches, img_pth, out_pth):
