@@ -52,6 +52,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
             "des": des_2
         }
 
+        constant_tvec = []
         # matches mask is empty for used_matcher=slam.Matchers.Hamming
         matches, matchesMask = feature_detector.matcher(detector1, detector2, used_matcher) #, save=True, img_pth=img_pth, out_pth=slam.outputs)
 
@@ -102,6 +103,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
             graph.add_image(im.image_id, len(im.points2D))
             graph.add_correspondences(old_im.image_id, im.image_id, matches)
             img_list.append(im.image_id)
+            constant_tvec.append(im.image_id)
             # det_list.append(detector2)
 
     max_reproj_error = 7  # 7
@@ -137,20 +139,26 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
     if debug:
         print("Filtered", ret_f, "3D points out")
-    optimization.global_BA(reconstruction, skip_pose=[old_im.image_id])
+
+    # Bundle Adjustment
+    ba = optimization.BundleAdjuster(reconstruction)
+    ba.global_BA()
 
     # triangulator.retriangulate(options)
 
+    ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
+    if debug:
+        print("Filtered", ret_f, "3D points out")
+
     viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(0,255,0)', name='global BA')
-    fig1.show()
+    # fig1.show()
 
     # Fill the map_points
     # old_im = reconstruction.find_image_with_name(str(old_im.image_id))
 
-
     ret_a = reconstruction.num_points3D()
     if debug:
-        print("Initial traingulation yielded", ret_a, "3D points")
+        print("Initial triangulation yielded", ret_a, "3D points")
     return (ret_a > 100), currFrameIdx
 
 

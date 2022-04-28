@@ -188,10 +188,10 @@ if __name__ == '__main__':
 
         q_pts = []
         k_pts = []
-        b = keyframe_idxes[-min(len(keyframe_idxes), 3):]
+        last_keyframes = keyframe_idxes[-min(len(keyframe_idxes), 3):]
 
         # Goes over the last keyframes and checks all matches to make an estimation of the global camera pose
-        for idx in keyframe_idxes[-min(len(keyframe_idxes), 3):]:
+        for idx in last_keyframes:
             # Extracts all matches
             matches, matchesMask = feature_detector.matcher(detector_map[idx], detector_map[currFrameIdx],
                                                             used_matcher)
@@ -236,7 +236,11 @@ if __name__ == '__main__':
             # print("Filtered", ret_f, "3D points out")
 
             # Using optimization to correct the image pose:
-            optimization.motion_only_BA(reconstruction, [im.image_id])
+            motion_ba = optimization.BundleAdjuster(reconstruction)
+            # Set initial image pose as fixed
+            motion_ba.constant_pose = [keyframe_idxes[0]]
+            motion_ba.constant_tvec = [keyframe_idxes[1]]
+            motion_ba.motion_only_BA([im.image_id])
 
             # num_trib = triangulator.triangulate_image(options, im.image_id)
             # print("triangulated", num_tri, " new 3D points")
@@ -258,9 +262,9 @@ if __name__ == '__main__':
             print("Frame ", currFrameIdx, "failure: not able to estimate absolute pose")
 
         # Using global BA after a certain increase in the model
-        # % 10 from: 0.045490 m to 0.073478 m
         if currFrameIdx % 250 == 0:
-            optimization.global_BA(reconstruction, skip_pose=[0])
+            global_ba = optimization.BundleAdjuster(reconstruction)
+            global_ba.global_BA()
         currFrameIdx += 1
 
     # num_completed_obs = triangulator.complete_all_tracks(options)
