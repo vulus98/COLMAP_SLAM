@@ -16,12 +16,6 @@ def detector(img_pth, used_matcher=enums.Matchers.OrbHamming, save=False, out_pt
     # TODO implement SuperPoint
     # elif used_matcher == slam.Matchers.SuperPoint:
 
-def extract_descriptors(pts2D,img_path):
-    img = cv.imread(str(img_path),0)
-    orb = cv.ORB_create()
-    keypoints = [cv.KeyPoint(point[0], point[1], 1) for point in pts2D]
-    kp, des = orb.compute(img,keypoints)
-    return kp,des
 
 '''
     This function should be called when matching features.
@@ -35,9 +29,9 @@ def extract_descriptors(pts2D,img_path):
 '''
 
 
-def matcher(img1, img2, used_matcher=enums.Matchers.OrbHamming, save=False, img_pth=Path('')):
+def matcher(img1, img2, used_matcher=enums.Matchers.OrbHamming, save=False, img_pth=Path(''), out_pth=Path('')):
     if used_matcher == enums.Matchers.OrbHamming:
-        return orb_matcher(img1, img2, save, img_pth), []
+        return orb_matcher(img1, img2, save, img_pth, out_pth), []
     elif used_matcher == enums.Matchers.OrbFlann:
         return orb_matcher_FLANN(img1, img2)
 
@@ -45,7 +39,7 @@ def matcher(img1, img2, used_matcher=enums.Matchers.OrbHamming, save=False, img_
 def orb_detector(img_pth, save=False, out_pth=Path(''), name='orb_out.jpg'):
     img = cv.imread(str(img_pth), 0)
     # Initiate ORB detector
-    orb = cv.ORB_create(nfeatures=2000)
+    orb = cv.ORB_create(nfeatures=1000)
     # find the keypoints and descriptors with ORB
     kp, des = orb.detectAndCompute(img, None)
 
@@ -57,7 +51,7 @@ def orb_detector(img_pth, save=False, out_pth=Path(''), name='orb_out.jpg'):
     return kp, des
 
 
-def orb_matcher(keypoint, query, save=False, img_pth=Path('')):
+def orb_matcher(keypoint, query, save=False, img_pth=Path(''), out_pth=Path('')):
     des1 = keypoint["des"]
     des2 = query["des"]
 
@@ -68,7 +62,7 @@ def orb_matcher(keypoint, query, save=False, img_pth=Path('')):
     # Sort them in the order of their distance.
     matches = sorted(matches, key=lambda x: x.distance)
     if save:
-        draw_matches(keypoint, query, matches, img_pth)
+        draw_matches(keypoint, query, matches, img_pth, out_pth)
     return matches
 
 
@@ -96,13 +90,13 @@ def orb_matcher_FLANN(keypoint, query):
     return matches, matchesMask
 
 
-def draw_matches(current_keyframe, _detector, _matches, img_pth, out_pth, indx=0):
+def draw_matches(current_keyframe, _detector, _matches, img_pth, out_pth):
     img1 = cv.imread(str(img_pth / current_keyframe["name"]), 0)
     img2 = cv.imread(str(img_pth / _detector["name"]), 0)
     # Draw first n matches.
     img3 = cv.drawMatches(img1, current_keyframe["kp"], img2, _detector["kp"], _matches[:10], None,
                           flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    name = "usedMatch_" + str(indx) + ".jpg"
+    name = "usedMatch_" + current_keyframe["name"] + "_" + _detector["name"] + ".jpg"
     result = cv.imwrite(str(out_pth / 'images/matcher' / name), img3)
 
 
