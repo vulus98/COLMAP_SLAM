@@ -9,20 +9,17 @@ from pathlib import Path
 from hloc.utils import viz_3d
 
 import slam
-from src import features as feature_detector, enums, optimization
+from src import features, enums, optimization
 
 
 def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, traingulator_options, camera, map_points,
+                   extractor,matcher,
+                   used_extractor=enums.Extractors.ORB,
                    used_matcher=enums.Matchers.OrbHamming):
     debug = True
     currFrameIdx = 0
-    kp_1, des_1 = feature_detector.detector(img_pth / frameNames[currFrameIdx], used_matcher) # , save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) +  '.jpg'))
+    kp1, detector1 = features.detector(img_pth, frameNames[currFrameIdx], extractor,used_extractor) # , save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) +  '.jpg'))
     # det_list = []
-    detector1 = {
-        "name": frameNames[currFrameIdx],
-        "kp": kp_1,
-        "des": des_1
-    }
     # Rotation and translation of the first image
     R = np.eye(3)
     qr = pycolmap.rotmat_to_qvec(R)
@@ -37,7 +34,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
                             camera_id=camera.camera_id, tvec=tv,
                             qvec=qr)
     old_im.registered = True
-    points2D_1 = [keypoint.pt for keypoint in kp_1]
+    points2D_1 = [keypoint.pt for keypoint in kp1]
     old_im.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D_1])
     reconstruction.add_image(old_im)
     graph.add_image(old_im.image_id, len(old_im.points2D))
@@ -45,20 +42,16 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     img_list = []
     for i in range(3):
         currFrameIdx += 7
-        kp_2, des_2 = feature_detector.orb_detector(img_pth / frameNames[currFrameIdx]) #, save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) + '.jpg'))
-        detector2 = {
-            "name": frameNames[currFrameIdx],
-            "kp": kp_2,
-            "des": des_2
-        }
+        kp2, detector2 = features.detector(img_pth,frameNames[currFrameIdx],extractor,used_extractor) #, save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) + '.jpg'))
 
+        constant_tvec = []
         # matches mask is empty for used_matcher=slam.Matchers.Hamming
-        matches, matchesMask = feature_detector.matcher(detector1, detector2, used_matcher)
+        matches = features.matcher(detector1, detector2, matcher,used_matcher) #, save=True, img_pth=img_pth, out_pth=slam.outputs)
 
         # Estimate Relative pose between the two images
         answer = pycolmap.two_view_geometry_estimation(
-            [detector1["kp"][match.queryIdx].pt for match in matches],
-            [detector2["kp"][match.trainIdx].pt for match in matches],
+            [kp1[match.queryIdx].pt for match in matches],
+            [kp2[match.trainIdx].pt for match in matches],
             camera,
             camera
         )
@@ -91,7 +84,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
             im = pycolmap.Image(id=currFrameIdx, name=str(currFrameIdx), camera_id=camera.camera_id,
                                 tvec=tv2, qvec=qr2)
             im.registered = True
-            points2D_2 = [keypoint.pt for keypoint in kp_2]
+            points2D_2 = [keypoint.pt for keypoint in kp2]
 
             matches = [(match.queryIdx, match.trainIdx) for match in matches]
             matches = np.array(matches, dtype=np.uint32)
@@ -102,6 +95,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
             graph.add_image(im.image_id, len(im.points2D))
             graph.add_correspondences(old_im.image_id, im.image_id, matches)
             img_list.append(im.image_id)
+            constant_tvec.append(im.image_id)
             # det_list.append(detector2)
 
     max_reproj_error = 7  # 7
@@ -137,9 +131,16 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
     if debug:
         print("Filtered", ret_f, "3D points out")
-    optimization.global_BA(reconstruction, skip_pose=[old_im.image_id])
+
+    # Bundle Adjustment
+    ba = optimization.BundleAdjuster(reconstruction)
+    ba.global_BA()
 
     # triangulator.retriangulate(options)
+
+    ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
+    if debug:
+        print("Filtered", ret_f, "3D points out")
 
     viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(0,255,0)', name='global BA')
     # fig1.show()
@@ -147,25 +148,24 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     # Fill the map_points
     # old_im = reconstruction.find_image_with_name(str(old_im.image_id))
 
-
     ret_a = reconstruction.num_points3D()
     if debug:
-        print("Initial traingulation yielded", ret_a, "3D points")
+        print("Initial triangulation yielded", ret_a, "3D points")
     return (ret_a > 100), currFrameIdx
 
 
 # Not working, should show the difference between the keypoint and the reprojection back to the image of the estimated
 # 3D point corresponding to the keypoint
-def draw_reprojection(reconstruction, camera):
-    # For debugging and visualization
-    for img in reconstruction.images.values():
-        pts2D = img.get_valid_points2D()[:10]
-        kp = [pt.xy for pt in pts2D]
-        pts3D = [reconstruction.points3D[pt.point3D_id].xyz for pt in pts2D]
-        repr = img.project(pts3D)
-        h_repr = [[r[0] * camera.width, r[1] * camera.height] for r in repr]
-        cv_img = cv.imread(str(img_pth / frameNames[img.image_id]), 0)
-        img2 = cv.drawKeypoints(cv_img, kp, None, color=(0, 255, 0), flags=0)
-        img2 = cv.drawKeypoints(img2, h_repr, None, color=(0, 0, 255), flags=0)
-        name = str(img.name) + ".jpg"
-        cv.imwrite(str(slam.outputs / 'images/reprojection' / name), img2)
+# def draw_reprojection(reconstruction, camera):
+#     # For debugging and visualization
+#     for img in reconstruction.images.values():
+#         pts2D = img.get_valid_points2D()[:10]
+#         kp = [pt.xy for pt in pts2D]
+#         pts3D = [reconstruction.points3D[pt.point3D_id].xyz for pt in pts2D]
+#         repr = img.project(pts3D)
+#         h_repr = [[r[0] * camera.width, r[1] * camera.height] for r in repr]
+#         cv_img = cv.imread(str(img_pth / frameNames[img.image_id]), 0)
+#         img2 = cv.drawKeypoints(cv_img, kp, None, color=(0, 255, 0), flags=0)
+#         img2 = cv.drawKeypoints(img2, h_repr, None, color=(0, 0, 255), flags=0)
+#         name = str(img.name) + ".jpg"
+#         cv.imwrite(str(slam.outputs / 'images/reprojection' / name), img2)

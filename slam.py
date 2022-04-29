@@ -2,25 +2,23 @@ import os
 from pathlib import Path
 import numpy as np
 import pycolmap
-from hloc import extract_features, match_features, visualization, pairs_from_exhaustive, pairs_from_retrieval
-from src import features as feature_detector
+from src import features
 from src import map_initialization, enums, optimization
 from hloc.utils import viz_3d
+
+
 
 # images = Path('data/frames/test1/')
 images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
 outputs = Path('out/test1/')
-sfm_pairs = outputs / 'pairs-sfm.txt'
-loc_pairs = outputs / 'pairs-loc.txt'
-sfm_dir = outputs / 'sfm'
-features = outputs / 'features.h5'
-matches = outputs / 'matches.h5'
+#sfm_pairs = outputs / 'pairs-sfm.txt'
+#loc_pairs = outputs / 'pairs-loc.txt'
+#sfm_dir = outputs / 'sfm'
+#features = outputs / 'features.h5'
+#matches = outputs / 'matches.h5'
 exports = outputs / 'reconstruction.ply'
-points_exports = outputs / 'reconstruction_points.ply'
+#points_exports = outputs / 'reconstruction_points.ply'
 
-retrieval_conf = extract_features.confs['netvlad']
-feature_conf = extract_features.confs['sift']
-matcher_conf = match_features.confs['NN-ratio']
 
 
 # FLANN is a nearest neighbour matching. Fast and less accurate.
@@ -50,13 +48,13 @@ def img_to_name(name, img):
 
 
 # Extracts from the matches of a query (as an detector dict) all the corresponding valid 3D points in the keyframe
-def match_to_3D_correspondences(query_detector, keyframe_img, matches):
+def match_to_3D_correspondences(query_detector_kps, keyframe_img, matches):
     query_2D = []
     keyframe_3D = []
     for match in matches:
         id_3D = keyframe_img.points2D[match.queryIdx].point3D_id
         if 0 <= id_3D < 18446744073709551615:
-            query_2D.append(query_detector["kp"][match.trainIdx].pt)
+            query_2D.append(query_detector_kps[match.trainIdx].pt)
             a = reconstruction
             keyframe_3D.append(reconstruction.points3D[id_3D].xyz)
     return query_2D, keyframe_3D
@@ -68,7 +66,7 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frameNames.sort()
 
-    frameNames = frameNames[:min(len(frameNames), 1000)]
+    frameNames = frameNames[:min(len(frameNames), 500)]
 
     # TODO: look into hloc and preprocess feature extraction and matching
     # retrieval_path = extract_features.main(retrieval_conf, images, image_list=frameNames, feature_path=features)
@@ -109,16 +107,37 @@ if __name__ == '__main__':
     triangulator = pycolmap.IncrementalTriangulator(graph, reconstruction)
 
     # The chose feature detector and matcher
+    used_extractor=enums.Extractors.ORB
     used_matcher = enums.Matchers.OrbHamming
+
+    extractor,matcher=features.init(used_extractor,used_matcher)
 
     # Stores all the 3D map points that are currently in the reconstruction and its feature descriptor
     map_points = {}
 
+    """ for SFM map init with hloc uncomment the lines
+    references = frameNames[:20]
+    extract_features.main(feature_conf, images, image_list=references, feature_path=features)
+    pairs_from_exhaustive.main(sfm_pairs, image_list=references)
+    match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)
+
+    model = hloc.reconstruction.main(sfm_dir, images, sfm_pairs, features, matches, image_list=references)
+    model.add_camera(camera)
+    # This overwrites the reconstruction using SFM map initialization
+    reconstruction = model
+    currFrameIdx = 20
+
+    # Bc of pycolmap indexing start with 0
+    frameNames.insert(0, "")
+    success = True
+    """
+
     success, currFrameIdx = map_initialization.initialize_map(images, frameNames, reconstruction,
-                                                                               graph,
-                                                                               triangulator, options, camera,
-                                                                               map_points,
-                                                                               used_matcher)
+                                                              graph,
+                                                              triangulator, options, camera,
+                                                              map_points,
+                                                              extractor,matcher,
+                                                              used_extractor,used_matcher)
     last_keyframeidx = currFrameIdx
     currFrameIdx += 1
 
@@ -127,16 +146,21 @@ if __name__ == '__main__':
     # old_im = reconstruction.find_image_with_name(str(last_keyframeidx))
 
     f = open(str(outputs / "estimation.txt"), "w")
+    references = []
     for c_img in reconstruction.images.values():
         keyframe_idxes.append(c_img.image_id)
         # extracting keypoints snd the relative descriptors of an image
-        kp, des = feature_detector.orb_detector(images / frameNames[c_img.image_id])
-        detector_map[c_img.image_id] = {
-            "name": frameNames[c_img.image_id],
-            "kp": kp,
-            "des": des
-        }
+        kp, detector_map[c_img.image_id] = features.detector(images,frameNames[c_img.image_id],extractor,used_extractor)
+
         f.write(img_to_name(frameNames[c_img.image_id], c_img))
+        # references.append(frameNames[c_img.image_id])
+
+    keyframe_idxes.sort()
+
+    # fig = viz_3d.init_figure()
+    # viz_3d.plot_reconstruction(fig, model, color='rgba(255,0,0,0.5)', name="mapping")
+    # viz_3d.plot_reconstruction(fig, reconstruction, color='rgba(0,255,0,0.5)', name="map_init")
+    # fig.show()
 
     while success and currFrameIdx < len(frameNames):
         old_im = reconstruction.images[last_keyframeidx]
@@ -144,12 +168,7 @@ if __name__ == '__main__':
         # For the evaluation use freiburg2/xyz and the estimation.txt from out/test1/sfm
 
         # extracting keypoints snd the relative descriptors of an image
-        kp, des = feature_detector.orb_detector(images / frameNames[currFrameIdx])
-        detector_map[currFrameIdx] = {
-            "name": frameNames[currFrameIdx],
-            "kp": kp,
-            "des": des
-        }
+        kp, detector_map[currFrameIdx] = features.detector(images ,frameNames[currFrameIdx],extractor,used_extractor)
 
         points2D = [keypoint.pt for keypoint in kp]
         # add image and correspondence to graph
@@ -157,15 +176,16 @@ if __name__ == '__main__':
 
         q_pts = []
         k_pts = []
-        b = keyframe_idxes[-min(len(keyframe_idxes), 3):]
+        last_keyframes = keyframe_idxes[-min(len(keyframe_idxes), 3):]
 
         # Goes over the last keyframes and checks all matches to make an estimation of the global camera pose
-        for idx in keyframe_idxes[-min(len(keyframe_idxes), 3):]:
+        for idx in last_keyframes:
             # Extracts all matches
-            matches, matchesMask = feature_detector.matcher(detector_map[idx], detector_map[currFrameIdx],
-                                                            used_matcher)
+            matches = features.matcher(detector_map[idx], detector_map[currFrameIdx],matcher,
+                                                    used_matcher)
             # Functions that relates every keypoint in the image to a 3D point in the graph (if such a point exists)
-            query_pts, keyframe_pts = match_to_3D_correspondences(detector_map[currFrameIdx], reconstruction.images[idx], matches)
+            query_pts, keyframe_pts = match_to_3D_correspondences(kp,
+                                                                  reconstruction.images[idx], matches)
             for (q_pt, k_pt) in zip(query_pts, keyframe_pts):
                 if q_pt not in q_pts:
                     q_pts.append(q_pt)
@@ -204,7 +224,11 @@ if __name__ == '__main__':
             # print("Filtered", ret_f, "3D points out")
 
             # Using optimization to correct the image pose:
-            optimization.motion_only_BA(reconstruction, [im.image_id])
+            motion_ba = optimization.BundleAdjuster(reconstruction)
+            # Set initial image pose as fixed
+            motion_ba.constant_pose = [keyframe_idxes[0]]
+            motion_ba.constant_tvec = [keyframe_idxes[1]]
+            motion_ba.motion_only_BA([im.image_id])
 
             # num_trib = triangulator.triangulate_image(options, im.image_id)
             # print("triangulated", num_tri, " new 3D points")
@@ -214,7 +238,8 @@ if __name__ == '__main__':
             # ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
 
             # E. New Keyframe Decision (See orb slam paper, missing 1) and 3) )
-            if currFrameIdx - last_keyframeidx > 20 and reconstruction.images[currFrameIdx].num_points3D() < 0.9 * reconstruction.images[last_keyframeidx].num_points3D():
+            if currFrameIdx - last_keyframeidx > 20 and reconstruction.images[currFrameIdx].num_points3D() < 0.9 * \
+                    reconstruction.images[last_keyframeidx].num_points3D():
                 last_keyframeidx = currFrameIdx
                 keyframe_idxes.append(currFrameIdx)
                 # For evaluation of dataset purposes
@@ -225,9 +250,9 @@ if __name__ == '__main__':
             print("Frame ", currFrameIdx, "failure: not able to estimate absolute pose")
 
         # Using global BA after a certain increase in the model
-        # % 10 from: 0.045490 m to 0.073478 m
-        # if currFrameIdx % 250 == 0:
-            # optimization.global_BA(reconstruction, skip_pose=[0])
+        if currFrameIdx % 250 == 0:
+            global_ba = optimization.BundleAdjuster(reconstruction)
+            global_ba.global_BA()
         currFrameIdx += 1
 
     # num_completed_obs = triangulator.complete_all_tracks(options)
