@@ -5,6 +5,7 @@ import pycolmap
 from src import features
 from src import map_initialization, enums, optimization
 from hloc.utils import viz_3d
+import open3d as o3d
 
 
 
@@ -19,6 +20,8 @@ outputs = Path('out/test1/')
 exports = outputs / 'reconstruction.ply'
 #points_exports = outputs / 'reconstruction_points.ply'
 
+# if false, the hloc viz will be used
+USE_OPEN_3D = True
 
 
 # FLANN is a nearest neighbour matching. Fast and less accurate.
@@ -273,6 +276,13 @@ if __name__ == '__main__':
     reconstruction.export_PLY(exports)
     # rec.export_PLY(points_exports)
 
-    fig = viz_3d.init_figure()
-    viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(255,0,0)')
-    fig.show()
+    if USE_OPEN_3D:
+        pcd = o3d.io.read_point_cloud(str(exports))
+        print(rec)
+        o3d.visualization.draw_geometries([pcd])
+
+
+    else:
+        fig = viz_3d.init_figure()
+        viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(255,0,0)')
+        fig.show()
