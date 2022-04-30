@@ -1,0 +1,7 @@
+
+data/*
+
+*.py[cod]
+*$py.class
+.vscode/*
+
