@@ -3,9 +3,9 @@ from pathlib import Path
 import numpy as np
 import pycolmap
 from src import features
-from src import map_initialization, enums, optimization
+from src import map_initialization, enums, optimization, viz
 from hloc.utils import viz_3d
-import open3d as o3d
+
 
 
 
@@ -63,7 +63,7 @@ def match_to_3D_correspondences(query_detector_kps, keyframe_img, matches):
     return query_2D, keyframe_3D
 
 
-if __name__ == '__main__':
+if __name__ == '__main__' or True:
     frameNames = os.listdir(images)
 
     # Assuming the frames are indexed
@@ -277,9 +277,7 @@ if __name__ == '__main__':
     # rec.export_PLY(points_exports)
 
     if USE_OPEN_3D:
-        pcd = o3d.io.read_point_cloud(str(exports))
-        print(rec)
-        o3d.visualization.draw_geometries([pcd])
+        viz.show(rec)
 
 
     else:

@@ -8,7 +8,6 @@ import pyceres
 from pathlib import Path
 from hloc.utils import viz_3d
 
-import slam
 from src import features, enums, optimization
 
 

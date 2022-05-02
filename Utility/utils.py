@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 DEBUG = False
 
@@ -52,3 +53,7 @@ def cell_variance(features1, features2, img_size, levels=3):
         plt.show()
 
     return score
+
+def img_renamer(path):
+    for f in os.listdir(path):
+        
