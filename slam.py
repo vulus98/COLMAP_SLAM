@@ -63,7 +63,7 @@ def match_to_3D_correspondences(query_detector_kps, keyframe_img, matches):
     return query_2D, keyframe_3D
 
 
-if __name__ == '__main__' or True:
+if __name__ == '__main__':
     frameNames = os.listdir(images)
 
     # Assuming the frames are indexed
