@@ -5,20 +5,20 @@ import pycolmap
 from src import features
 from src import map_initialization, enums, optimization
 from hloc.utils import viz_3d
-
-
+from tqdm import tqdm
 
 # images = Path('data/frames/test1/')
 images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
 outputs = Path('out/test1/')
-#sfm_pairs = outputs / 'pairs-sfm.txt'
-#loc_pairs = outputs / 'pairs-loc.txt'
-#sfm_dir = outputs / 'sfm'
-#features = outputs / 'features.h5'
-#matches = outputs / 'matches.h5'
+# sfm_pairs = outputs / 'pairs-sfm.txt'
+# loc_pairs = outputs / 'pairs-loc.txt'
+# sfm_dir = outputs / 'sfm'
+# features = outputs / 'features.h5'
+# matches = outputs / 'matches.h5'
 exports = outputs / 'reconstruction.ply'
-#points_exports = outputs / 'reconstruction_points.ply'
 
+
+# points_exports = outputs / 'reconstruction_points.ply'
 
 
 # FLANN is a nearest neighbour matching. Fast and less accurate.
@@ -66,7 +66,7 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frameNames.sort()
 
-    frameNames = frameNames[:min(len(frameNames), 500)]
+    frameNames = frameNames[:min(len(frameNames), 200)]
 
     # TODO: look into hloc and preprocess feature extraction and matching
     # retrieval_path = extract_features.main(retrieval_conf, images, image_list=frameNames, feature_path=features)
@@ -93,24 +93,24 @@ if __name__ == '__main__':
     reconstruction.add_camera(camera)
     graph = pycolmap.CorrespondenceGraph()
 
-    max_reproj_error = 7.0
+    max_reproj_error = 4.0  # 7.0
     max_angle_error = 2.0
     min_tri_angle = 1.5
 
     options = pycolmap.IncrementalTriangulatorOptions()
-    options.create_max_angle_error = max_angle_error
-    options.continue_max_angle_error = max_angle_error
-    options.merge_max_reproj_error = max_reproj_error
-    options.complete_max_reproj_error = max_reproj_error
+    # options.create_max_angle_error = max_angle_error
+    # options.continue_max_angle_error = max_angle_error
+    # options.merge_max_reproj_error = max_reproj_error
+    # options.complete_max_reproj_error = max_reproj_error
 
     # Triangulator that triangulates map points from 2D image correspondences
     triangulator = pycolmap.IncrementalTriangulator(graph, reconstruction)
 
     # The chose feature detector and matcher
-    used_extractor=enums.Extractors.ORB
+    used_extractor = enums.Extractors.ORB
     used_matcher = enums.Matchers.OrbHamming
 
-    extractor,matcher=features.init(used_extractor,used_matcher)
+    extractor, matcher = features.init(used_extractor, used_matcher)
 
     # Stores all the 3D map points that are currently in the reconstruction and its feature descriptor
     map_points = {}
@@ -136,8 +136,11 @@ if __name__ == '__main__':
                                                               graph,
                                                               triangulator, options, camera,
                                                               map_points,
-                                                              extractor,matcher,
-                                                              used_extractor,used_matcher)
+                                                              extractor, matcher,
+                                                              used_extractor, used_matcher)
+    if not success:
+        print("Could not fnd a good initialization!")
+
     last_keyframeidx = currFrameIdx
     currFrameIdx += 1
 
@@ -150,7 +153,8 @@ if __name__ == '__main__':
     for c_img in reconstruction.images.values():
         keyframe_idxes.append(c_img.image_id)
         # extracting keypoints snd the relative descriptors of an image
-        kp, detector_map[c_img.image_id] = features.detector(images,frameNames[c_img.image_id],extractor,used_extractor)
+        kp, detector_map[c_img.image_id] = features.detector(images, frameNames[c_img.image_id], extractor,
+                                                             used_extractor)
 
         f.write(img_to_name(frameNames[c_img.image_id], c_img))
         # references.append(frameNames[c_img.image_id])
@@ -162,13 +166,14 @@ if __name__ == '__main__':
     # viz_3d.plot_reconstruction(fig, reconstruction, color='rgba(0,255,0,0.5)', name="map_init")
     # fig.show()
 
+    pbar = tqdm(total=len(frameNames) - currFrameIdx)
     while success and currFrameIdx < len(frameNames):
         old_im = reconstruction.images[last_keyframeidx]
         # https://vision.in.tum.de/data/datasets/rgbd-dataset/online_evaluation
         # For the evaluation use freiburg2/xyz and the estimation.txt from out/test1/sfm
 
         # extracting keypoints snd the relative descriptors of an image
-        kp, detector_map[currFrameIdx] = features.detector(images ,frameNames[currFrameIdx],extractor,used_extractor)
+        kp, detector_map[currFrameIdx] = features.detector(images, frameNames[currFrameIdx], extractor, used_extractor)
 
         points2D = [keypoint.pt for keypoint in kp]
         # add image and correspondence to graph
@@ -181,8 +186,8 @@ if __name__ == '__main__':
         # Goes over the last keyframes and checks all matches to make an estimation of the global camera pose
         for idx in last_keyframes:
             # Extracts all matches
-            matches = features.matcher(detector_map[idx], detector_map[currFrameIdx],matcher,
-                                                    used_matcher)
+            matches = features.matcher(detector_map[idx], detector_map[currFrameIdx], matcher,
+                                       used_matcher)
             # Functions that relates every keypoint in the image to a 3D point in the graph (if such a point exists)
             query_pts, keyframe_pts = match_to_3D_correspondences(kp,
                                                                   reconstruction.images[idx], matches)
@@ -201,7 +206,7 @@ if __name__ == '__main__':
         # Estimate absolute pose of the query image
         answer = pycolmap.absolute_pose_estimation(q_pts,
                                                    k_pts,
-                                                   camera, max_error_px=12.0)
+                                                   camera, max_error_px=4.0)  # 12.0
 
         if answer["success"]:
             # print("Frame", currFrameIdx, "sucess")
@@ -215,42 +220,48 @@ if __name__ == '__main__':
             # TODO should be done after motion only BA and for motuion only ba just use the inliers
             # Triangulate the points of the image based on the pose graph correlations and the 2D-3D correspondences
             num_tri = triangulator.triangulate_image(options, im.image_id)
+            # num_tri = triangulator.complete_image(options, im.image_id)
             # print("triangulated", num_tri, " new 3D points")
-            num_completed_obs = triangulator.complete_all_tracks(options)
-            num_merged_obs = triangulator.merge_all_tracks(options)
+            # num_completed_obs = triangulator.complete_all_tracks(options)
+            # num_merged_obs = triangulator.merge_all_tracks(options)
 
             # ret_f = reconstruction.filter_points3D_in_images(max_reproj_error, min_tri_angle, {im.image_id})
             ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
             # print("Filtered", ret_f, "3D points out")
 
-            # Using optimization to correct the image pose:
-            motion_ba = optimization.BundleAdjuster(reconstruction)
-            # Set initial image pose as fixed
-            motion_ba.constant_pose = [keyframe_idxes[0]]
-            motion_ba.constant_tvec = [keyframe_idxes[1]]
-            motion_ba.motion_only_BA([im.image_id])
+            if num_tri - ret_f >= 100:
+                motion_ba = optimization.BundleAdjuster(reconstruction, debug=False)
+                # Set initial image pose as fixed
+                motion_ba.constant_pose = [keyframe_idxes[0]]
+                motion_ba.constant_tvec = [keyframe_idxes[1]]
+                motion_ba.motion_only_BA([im.image_id])
 
-            # num_trib = triangulator.triangulate_image(options, im.image_id)
-            # print("triangulated", num_tri, " new 3D points")
-            # num_completed_obs = triangulator.complete_all_tracks(options)
-            # num_merged_obs = triangulator.merge_all_tracks(options)
+                # num_trib = triangulator.triangulate_image(options, im.image_id)
+                # print("triangulated", num_tri, " new 3D points")
+                # num_completed_obs = triangulator.complete_all_tracks(options)
+                # num_merged_obs = triangulator.merge_all_tracks(options)
 
-            # ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
+                # ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
 
-            # E. New Keyframe Decision (See orb slam paper, missing 1) and 3) )
-            if currFrameIdx - last_keyframeidx > 20 and reconstruction.images[currFrameIdx].num_points3D() < 0.9 * \
-                    reconstruction.images[last_keyframeidx].num_points3D():
-                last_keyframeidx = currFrameIdx
-                keyframe_idxes.append(currFrameIdx)
-                # For evaluation of dataset purposes
-                f.write(img_to_name(frameNames[currFrameIdx], reconstruction.images[im.image_id]))
+                # E. New Keyframe Decision (See orb slam paper, missing 1) and 3) )
+                if currFrameIdx - last_keyframeidx > 20 and reconstruction.images[currFrameIdx].num_points3D() < 0.9 * \
+                        reconstruction.images[last_keyframeidx].num_points3D():
+                    triangulator.complete_image(options, im.image_id)
+                    last_keyframeidx = currFrameIdx
+                    keyframe_idxes.append(currFrameIdx)
+                    # For evaluation of dataset purposes
+                    f.write(img_to_name(frameNames[currFrameIdx], reconstruction.images[im.image_id]))
+                else:
+                    reconstruction.deregister_image(im.image_id)
             else:
                 reconstruction.deregister_image(im.image_id)
         else:
             print("Frame ", currFrameIdx, "failure: not able to estimate absolute pose")
 
+        pbar.update(1)
+
         # Using global BA after a certain increase in the model
-        if currFrameIdx % 250 == 0:
+        if False and currFrameIdx % 250 == 0:
             global_ba = optimization.BundleAdjuster(reconstruction)
             global_ba.global_BA()
         currFrameIdx += 1
@@ -261,14 +272,16 @@ if __name__ == '__main__':
     # num_merged_obs = triangulator.merge_all_tracks(options)
     # print(num_completed_obs)
     # print(num_merged_obs)
-
+    pbar.close()
     f.close()
 
     rec = pycolmap.Reconstruction()
     rec.add_camera(camera)
     for p in reconstruction.points3D.values():
         rec.add_point3D(p.xyz, pycolmap.Track(), np.zeros(3))
-    for im in [img for img in reconstruction.images.values() if img.registered]:
+    registered_list = [img for img in reconstruction.images.values() if img.registered]
+    every_nth_element = max(1, int(len(registered_list) / 30))
+    for im in registered_list[::every_nth_element]:
         rec.add_image(im)
     reconstruction.export_PLY(exports)
     # rec.export_PLY(points_exports)

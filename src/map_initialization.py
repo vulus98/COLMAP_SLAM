@@ -40,8 +40,8 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     graph.add_image(old_im.image_id, len(old_im.points2D))
 
     img_list = []
-    for i in range(3):
-        currFrameIdx += 7
+    for i in range(1):
+        currFrameIdx += 80
         kp2, detector2 = features.detector(img_pth,frameNames[currFrameIdx],extractor,used_extractor) #, save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) + '.jpg'))
 
         constant_tvec = []
@@ -68,8 +68,19 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
         .value("PLANAR_OR_PANORAMIC", TwoViewGeometry::PLANAR_OR_PANORAMIC)
         .value("WATERMARK", TwoViewGeometry::WATERMARK)
         .value("MULTIPLE", TwoViewGeometry::MULTIPLE);'''
+        # Baseline b > ratio * z (depth)
+
+        # Assumig no rotation:
+        # Median over the imaage points
+        # (u - u´) / f
+        # At least a 100 points are close, a lot of flow
+        # Thresholdig the flow: (f * t) / z
+        #                          focal length, tvec, z depth
+        # This gives tvec / z = delta_u (2D point in the images) / f < 10%
         b = answer["success"]
         if b:
+            # R^t
+            # -t
             # Rotation of the other images relative to the first one
             # If our first image is not placed at the origin
             # https://math.stackexchange.com/questions/709622/relative-camera-matrix-pose-from-global-camera-matrixes
@@ -98,20 +109,22 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
             constant_tvec.append(im.image_id)
             # det_list.append(detector2)
 
-    max_reproj_error = 7  # 7
+    max_reproj_error = 4  # 7
     max_angle_error = 2.0  # 2
     min_tri_angle = 1.5  # 1.5
 
     options = pycolmap.IncrementalTriangulatorOptions()
-    options.create_max_angle_error = max_angle_error
-    options.continue_max_angle_error = max_angle_error
-    options.merge_max_reproj_error = max_reproj_error
-    options.complete_max_reproj_error = max_reproj_error
+    # options.create_max_angle_error = max_angle_error
+    # options.continue_max_angle_error = max_angle_error
+    # options.merge_max_reproj_error = max_reproj_error
+    # options.complete_max_reproj_error = max_reproj_error
+    options.ignore_two_view_track = False
 
-    ret_a = triangulator.triangulate_image(options, old_im.image_id)
+    # ret_a = triangulator.triangulate_image(options, old_im.image_id)
+    ret_a = triangulator.complete_image(options, old_im.image_id)
 
     fig1 = viz_3d.init_figure()
-    viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(255,0,0)', name='no optimization')
+    # viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(255,0,0)', name='no optimization')
 
     # for id in img_list:
     # for id2 in img_list[(img_list.index(id) + 1):]:
@@ -122,11 +135,11 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     #    graph.add_correspondences(id, id2, matches)
     # ret_b = triangulator.triangulate_image(options, id)
 
-    num_completed_obs = triangulator.complete_all_tracks(options)
-    num_merged_obs = triangulator.merge_all_tracks(options)
-    if debug:
-        print("num_completed_obs", num_completed_obs)
-        print("num_merged_obs", num_merged_obs)
+    #num_completed_obs = triangulator.complete_all_tracks(options)
+    #num_merged_obs = triangulator.merge_all_tracks(options)
+    #if debug:
+    #    print("num_completed_obs", num_completed_obs)
+    #    print("num_merged_obs", num_merged_obs)
 
     ret_f = reconstruction.filter_all_points3D(max_reproj_error, min_tri_angle)
     if debug:
@@ -143,7 +156,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
         print("Filtered", ret_f, "3D points out")
 
     viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(0,255,0)', name='global BA')
-    # fig1.show()
+    fig1.show()
 
     # Fill the map_points
     # old_im = reconstruction.find_image_with_name(str(old_im.image_id))
