@@ -40,7 +40,7 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     graph.add_image(old_im.image_id, len(old_im.points2D))
 
     img_list = []
-    for i in range(1):
+    for i in range(0):
         currFrameIdx += 80
         kp2, detector2 = features.detector(img_pth,frameNames[currFrameIdx],extractor,used_extractor) #, save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) + '.jpg'))
 
@@ -118,11 +118,10 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     # options.continue_max_angle_error = max_angle_error
     # options.merge_max_reproj_error = max_reproj_error
     # options.complete_max_reproj_error = max_reproj_error
-    options.ignore_two_view_track = False
+    # options.ignore_two_view_track = False
 
-    # ret_a = triangulator.triangulate_image(options, old_im.image_id)
-    ret_a = triangulator.complete_image(options, old_im.image_id)
-
+    ret_a = triangulator.triangulate_image(options, old_im.image_id)
+    # ret_a = triangulator.complete_image(options, old_im.image_id)
     fig1 = viz_3d.init_figure()
     # viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(255,0,0)', name='no optimization')
 
@@ -135,8 +134,8 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     #    graph.add_correspondences(id, id2, matches)
     # ret_b = triangulator.triangulate_image(options, id)
 
-    #num_completed_obs = triangulator.complete_all_tracks(options)
-    #num_merged_obs = triangulator.merge_all_tracks(options)
+    num_completed_obs = triangulator.complete_all_tracks(options)
+    num_merged_obs = triangulator.merge_all_tracks(options)
     #if debug:
     #    print("num_completed_obs", num_completed_obs)
     #    print("num_merged_obs", num_merged_obs)
@@ -156,10 +155,11 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
         print("Filtered", ret_f, "3D points out")
 
     viz_3d.plot_reconstruction(fig1, reconstruction, min_track_length=0, color='rgb(0,255,0)', name='global BA')
-    fig1.show()
+    # fig1.show()
 
     # Fill the map_points
     # old_im = reconstruction.find_image_with_name(str(old_im.image_id))
+
 
     ret_a = reconstruction.num_points3D()
     if debug:

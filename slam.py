@@ -12,10 +12,11 @@ images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
 outputs = Path('out/test1/')
 # sfm_pairs = outputs / 'pairs-sfm.txt'
 # loc_pairs = outputs / 'pairs-loc.txt'
-# sfm_dir = outputs / 'sfm'
+sfm_dir = outputs / 'sfm'
 # features = outputs / 'features.h5'
 # matches = outputs / 'matches.h5'
 exports = outputs / 'reconstruction.ply'
+db = sfm_dir / 'database.db'
 
 
 # points_exports = outputs / 'reconstruction_points.ply'
@@ -87,6 +88,8 @@ if __name__ == '__main__':
         height=480,
         params=[525, 525, 319.5, 239.5],
     )
+
+    # a = pycolmap.incremental_mapping(db, images, outputs, num_threads=-1, min_num_matches=10)
 
     camera.camera_id = 0
     reconstruction = pycolmap.Reconstruction()

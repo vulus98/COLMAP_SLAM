@@ -2,7 +2,8 @@ import os
 from pathlib import Path
 from src import features
 import pycolmap
-import enums
+from src import enums
+import numpy as np
 
 
 class ImagesManager:
@@ -26,7 +27,16 @@ class ImagesManager:
     # Keeps track which images have been
     managed_images = []
 
-    def __init__(self, images_path, frame_names, used_extractor=enums.Extractors.ORB,
+    # The recontruction object
+    reconstruction = None
+
+    # The correspondence graph
+    graph = None
+
+    # The only camera in the reconstruction (assuming SLAM)
+    camera = None
+
+    def __init__(self, images_path, frame_names, reconstruction, graph, camera, used_extractor=enums.Extractors.ORB,
                  used_matcher=enums.Matchers.OrbHamming):
         self.images_path = images_path
         self.frame_names = frame_names
@@ -35,6 +45,9 @@ class ImagesManager:
         self.extractor, self.matcher = features.init(used_extractor, used_matcher)
         self.kp_map = {}
         self.detector_map = {}
+        self.graph = graph
+        self.reconstruction = reconstruction
+        self.camera = camera
 
         # Register all images
         for image_id in range(len(frame_names)):
@@ -49,11 +62,25 @@ class ImagesManager:
                                                                                self.frame_names[image_id],
                                                                                self.extractor,
                                                                                self.used_extractor)
+        image = pycolmap.Image(id=image_id, name=str(self.frame_names[image_id]),
+                                camera_id=self.camera.camera_id)
+        image.registered = False
+        points2D = [keypoint.pt for keypoint in self.kp_map[image_id]]
+        image.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
+        self.reconstruction.add_image(image)
+        self.graph.add_image(image_id, len(image.points2D))
 
     def match_images(self, image_id1, image_id2):
-        matches = features.matcher(self.detector_map[image_id2], self.detector_map[image_id1], self.matcher,
+        matches = features.matcher(self.detector_map[image_id1], self.detector_map[image_id2], self.matcher,
                                    self.used_matcher)
+        # Since the first parameter for matcher is actually the query
+        matches = [(match.queryIdx, match.trainIdx) for match in matches]
         return matches
+
+    def add_to_correspondence_graph(self, image_id1, image_id2):
+        matches = self.match_images(image_id1, image_id2)
+        matches = np.array(matches, dtype=np.uint32)
+        self.graph.add_correspondences(image_id1, image_id2, matches)
 
     # Check if image exists on disk
     def exists_image(self, image_id):
