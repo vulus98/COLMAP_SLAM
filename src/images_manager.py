@@ -4,6 +4,7 @@ from src import features
 import pycolmap
 from src import enums
 import numpy as np
+from tqdm import tqdm
 
 
 class ImagesManager:
@@ -27,6 +28,9 @@ class ImagesManager:
     # Keeps track which images have been
     managed_images = []
 
+    # List of all image ids
+    image_ids = []
+
     # The recontruction object
     reconstruction = None
 
@@ -36,7 +40,12 @@ class ImagesManager:
     # The only camera in the reconstruction (assuming SLAM)
     camera = None
 
-    def __init__(self, images_path, frame_names, reconstruction, graph, camera, used_extractor=enums.Extractors.ORB,
+    # The number of images to compare the current frame with
+    # We do an exhaustive matching with the images
+    # [current_img - init_max_num_images : current_img + init_max_num_images]
+    init_max_num_images = 60
+
+    def __init__(self, images_path, frame_names, reconstruction, graph, camera, init_max_num_images=60, used_extractor=enums.Extractors.ORB,
                  used_matcher=enums.Matchers.OrbHamming):
         self.images_path = images_path
         self.frame_names = frame_names
@@ -45,13 +54,23 @@ class ImagesManager:
         self.extractor, self.matcher = features.init(used_extractor, used_matcher)
         self.kp_map = {}
         self.detector_map = {}
+        self.image_ids = []
         self.graph = graph
         self.reconstruction = reconstruction
         self.camera = camera
+        self.init_max_num_images = init_max_num_images
 
         # Register all images
-        for image_id in range(len(frame_names)):
+        for image_id in tqdm(range(len(frame_names)), "Matching the corresponding images"):
             self.register_image(image_id)
+
+        self.image_ids = sorted(self.image_ids)
+
+        # Set the correspondences
+        for image_id in range(len(frame_names)):
+            self.reconstruction.images[image_id].num_observations = self.graph.num_observations_for_image(image_id)
+            self.reconstruction.images[image_id].num_correspondences = self.graph.num_correspondences_for_image(image_id)
+
 
     def register_image(self, image_id):
         """
@@ -69,6 +88,10 @@ class ImagesManager:
         image.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
         self.reconstruction.add_image(image)
         self.graph.add_image(image_id, len(image.points2D))
+        self.image_ids.append(image_id)
+
+        for image_id2 in self.image_ids[max(0, image_id - self.init_max_num_images):image_id]:
+            self.add_to_correspondence_graph(image_id, image_id2)
 
     def match_images(self, image_id1, image_id2):
         matches = features.matcher(self.detector_map[image_id1], self.detector_map[image_id2], self.matcher,

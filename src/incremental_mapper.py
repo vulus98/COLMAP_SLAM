@@ -76,165 +76,6 @@ class IncrementalMapperOptions:
 class IncrementalMapper:
     # =========================== "private" ===============================
 
-    # This function does not seem to get exposed from pycolmap
-    def DegToRad(self, deg):
-        return deg * np.pi / 180
-
-    # Find seed images for incremental reconstruction. Suitable seed images have
-    # a large number of correspondences and have camera calibration priors. The
-    # returned list is ordered such that most suitable images are in the front.
-    def FindFirstInitialImage(self, options):
-
-        init_max_reg_trials = options.init_max_reg_trials
-
-        # Collect information of all not yet registered images with
-        # correspondences. We considre onyl the options.
-        image_infos = []
-
-        max_len = max(self.reconstruction_.num_images(), options.init_max_num_images)
-        # TODO add [:max_len] to search only the n nearest frames
-        for image in self.reconstruction_.images.values():
-            # Only images with correspondences can be registered.
-            if image.num_correspondences == 0:
-                continue
-
-            # Only use images for initialization a maximum number of times.
-            if self.init_num_reg_trials_.get(image.image_id, 0) >= self.init_max_reg_trials:
-                continue
-
-            # Only use images for initialization that are not registered in any
-            # of the other reconstructions.
-            if self.num_registrations_.get(image.image_id, 0) > 0:
-                continue
-
-            camera = self.reconstruction_.cameras[image.camera_id]
-            image_info = {
-                "image_id": image.image_id,
-                "prior_focal_length": camera.has_prior_focal_length(),
-                "num_correspondences": image.num_correspondences()
-            }
-            image_infos.append(image_info)
-
-        # Sort images such that images with a prior focal length and more
-        # correspondences are preferred, i.e. they appear in the front of the list.
-        image_infos = sorted(image_infos, key=lambda d: (d["prior_focal_length"], d["num_correspondences"]))
-
-        # Extract image identifiers in sorted order.
-        image_ids = [image_info["image_id"] for image_info in image_infos]
-
-        return image_ids
-
-    # For a given first seed image, find other images that are connected to the
-    # first image. Suitable second images have a large number of correspondences
-    # to the first image and have camera calibration priors. The returned list is
-    # ordered such that most suitable images are in the front.
-    def FindSecondInitialImage(self, options, image_id1):
-        image1 = self.reconstruction_.images[image_id1]
-        num_correspondences = {}
-        for point2D_idx in range(image1.num_points2D()):
-            for corr in self.graph_.find_correspondences(image_id1, point2D_idx):
-                if self.num_registrations_.get(corr.image_id, 0) == 0:
-                    num_correspondences[corr.image_id] = num_correspondences.get(corr.image_id, 0) + 1
-
-        init_min_num_inliers = options.init_min_num_inliers
-        image_infos = []
-        for k, v in num_correspondences.items():
-            if v >= init_min_num_inliers:
-                image = self.reconstruction_.images[k]
-                camera = self.reconstruction_.cameras[k]
-                image_info = {
-                    "image_id": k,
-                    "prior_focal_length": camera.has_prior_focal_length(),
-                    "num_correspondences": v
-                }
-                image_infos.append(image_info)
-
-        # Sort images such that images with a prior focal length and more
-        # correspondences are preferred, i.e. they appear in the front of the list.
-        image_infos = sorted(image_infos, key=lambda d: (d["prior_focal_length"], d["num_correspondences"]))
-
-        # Extract image identifiers in sorted order.
-        image_ids = [image_info["image_id"] for image_info in image_infos]
-
-        return image_ids
-
-
-    # Find local bundle for given image in the reconstruction. The local bundle
-    # is defined as the images that are most connected, i.e. maximum number of
-    # shared 3D points, to the given image.
-    def FindLocalBundle(self, options, image_id):
-        a = 0
-
-    # Register / De-register image in current reconstruction and update
-    # the number of shared images between all reconstructions.
-    def RegisterImageEvent(self, image_id):
-        image = self.reconstruction_.images[image_id]
-        num_reg_images_for_camera = self.num_reg_images_per_camera_.get(image.CameraId(), 0)
-
-        num_reg_images_for_camera += 1
-
-        num_regs_for_image = self.num_registrations_.get(image_id, 0)
-        num_regs_for_image += 1
-        if num_regs_for_image == 1:
-            self.num_total_reg_images_ += 1
-        elif num_regs_for_image > 1:
-            self.num_shared_reg_images_ += 1
-
-    def DeRegisterImageEvent(self, image_id):
-        image = self.reconstruction_.images[image_id]
-        num_reg_images_for_camera = self.num_reg_images_per_camera_.get(image.CameraId(), 0)
-
-        if num_reg_images_for_camera > 0:
-            num_reg_images_for_camera -= 1
-
-            num_regs_for_image = self.num_registrations_.get(image_id, 0)
-            num_regs_for_image -= 1
-            if num_regs_for_image == 0:
-                self.num_total_reg_images_ -= 1
-            elif num_regs_for_image > 0:
-                self.num_shared_reg_images_ -= 1
-
-    def EstimateInitialTwoViewGeometry(self, options, image_id1, image_id2):
-        image_pair_id = self.images_manager_.ImagePairToPairId(image_id1, image_id2)
-
-        if self.prev_init_image_pair_id_ == image_pair_id:
-            return True
-
-        # TODO: this should get loaded from the database, make sure this way works to
-        image1 = self.reconstruction_.images[image_id1]
-        camera1 = self.reconstruction_.cameras[image1.camera_id]
-
-        image2 = self.reconstruction_.images[image_id2]
-        camera2 = self.reconstruction_.cameras[image2.camera_id]
-
-        matches = self.graph_.find_correspondences_between_images(image_id1, image_id2)
-
-        points1 = []
-        for point in image1.points2D:
-            points1.append(point.xy)
-
-        points2 = []
-        for point in image2.points2D:
-            points2.append(point.xy)
-
-        two_view_geometry_options = pycolmap.TwoViewGeometryOptions()
-        two_view_geometry_options.ransac.min_num_trials = 30
-        two_view_geometry_options.ransac.max_error = options.init_max_error
-
-        answer = pycolmap.two_view_geometry_estimation(points1, points2, camera1, camera2, two_view_geometry_options)
-
-        if not answer["success"]:
-            return False
-
-        if answer["num_inliers"] >= options.init_min_num_inliers and abs(answer["tvec"][2]) < options.init_max_forward_motion:
-            # TODO: Note the Colmap code checks also the triagulation angle but this seems not really possible with the pycolmap bindings
-            # see: https://github.com/colmap/colmap/blob/dev/src/estimators/two_view_geometry.cc/#L216-L217
-            self.prev_init_image_pair_id_ = image_pair_id
-            self.prev_init_two_view_geometry_ = answer
-            return True
-
-        return False
-
         # Class that holds data of the reconstruction.
     reconstruction_ = None
 
@@ -288,6 +129,168 @@ class IncrementalMapper:
     # an existing reconstruction.
     existing_image_ids_ = None
 
+    # This function does not seem to get exposed from pycolmap
+    def DegToRad(self, deg):
+        return deg * np.pi / 180
+
+    # Find seed images for incremental reconstruction. Suitable seed images have
+    # a large number of correspondences and have camera calibration priors. The
+    # returned list is ordered such that most suitable images are in the front.
+    def FindFirstInitialImage(self, options):
+
+        init_max_reg_trials = options.init_max_reg_trials
+
+        # Collect information of all not yet registered images with
+        # correspondences. We considre onyl the options.
+        image_infos = []
+
+        max_len = min(self.reconstruction_.num_images(), options.init_max_num_images)
+        for image in [self.reconstruction_.images[img_id] for img_id in self.images_manager_.image_ids[:max_len]]:
+            # Only images with correspondences can be registered.
+            if image.num_correspondences == 0:
+                continue
+
+            # Only use images for initialization a maximum number of times.
+            if self.init_num_reg_trials_.get(image.image_id, 0) >= options.init_max_reg_trials:
+                continue
+
+            # Only use images for initialization that are not registered in any
+            # of the other reconstructions.
+            if self.num_registrations_.get(image.image_id, 0) > 0:
+                continue
+
+            camera = self.reconstruction_.cameras[image.camera_id]
+            image_info = {
+                "image_id": image.image_id,
+                "prior_focal_length": camera.has_prior_focal_length,
+                "num_correspondences": image.num_correspondences
+            }
+            image_infos.append(image_info)
+
+        # Sort images such that images with a prior focal length and more
+        # correspondences are preferred, i.e. they appear in the front of the list.
+        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]), reverse=True)
+
+        # Extract image identifiers in sorted order.
+        image_ids = [image_info["image_id"] for image_info in image_infos]
+
+        return image_ids
+
+    # For a given first seed image, find other images that are connected to the
+    # first image. Suitable second images have a large number of correspondences
+    # to the first image and have camera calibration priors. The returned list is
+    # ordered such that most suitable images are in the front.
+    def FindSecondInitialImage(self, options, image_id1):
+        image1 = self.reconstruction_.images[image_id1]
+        num_correspondences = {}
+        for point2D_idx in range(image1.num_points2D()):
+            for corr in self.graph_.find_correspondences(image_id1, point2D_idx):
+                if self.num_registrations_.get(corr.image_id, 0) == 0:
+                    num_correspondences[corr.image_id] = num_correspondences.get(corr.image_id, 0) + 1
+
+        init_min_num_inliers = options.init_min_num_inliers
+        image_infos = []
+        for k, v in num_correspondences.items():
+            if v >= init_min_num_inliers:
+                image = self.reconstruction_.images[k]
+                camera = self.reconstruction_.cameras[image.camera_id]
+                image_info = {
+                    "image_id": k,
+                    "prior_focal_length": camera.has_prior_focal_length,
+                    "num_correspondences": v
+                }
+                image_infos.append(image_info)
+
+        # Sort images such that images with a prior focal length and more
+        # correspondences are preferred, i.e. they appear in the front of the list.
+        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]), reverse=True)
+
+        # Extract image identifiers in sorted order.
+        image_ids = [image_info["image_id"] for image_info in image_infos]
+
+        return image_ids
+
+
+    # Find local bundle for given image in the reconstruction. The local bundle
+    # is defined as the images that are most connected, i.e. maximum number of
+    # shared 3D points, to the given image.
+    def FindLocalBundle(self, options, image_id):
+        a = 0
+
+    # Register / De-register image in current reconstruction and update
+    # the number of shared images between all reconstructions.
+    def RegisterImageEvent(self, image_id):
+        image = self.reconstruction_.images[image_id]
+        num_reg_images_for_camera = self.num_reg_images_per_camera_.get(image.camera_id, 0)
+
+        num_reg_images_for_camera += 1
+
+        num_regs_for_image = self.num_registrations_.get(image_id, 0)
+        num_regs_for_image += 1
+        if num_regs_for_image == 1:
+            self.num_total_reg_images_ += 1
+        elif num_regs_for_image > 1:
+            self.num_shared_reg_images_ += 1
+
+    def DeRegisterImageEvent(self, image_id):
+        image = self.reconstruction_.images[image_id]
+        num_reg_images_for_camera = self.num_reg_images_per_camera_.get(image.CameraId(), 0)
+
+        if num_reg_images_for_camera > 0:
+            num_reg_images_for_camera -= 1
+
+            num_regs_for_image = self.num_registrations_.get(image_id, 0)
+            num_regs_for_image -= 1
+            if num_regs_for_image == 0:
+                self.num_total_reg_images_ -= 1
+            elif num_regs_for_image > 0:
+                self.num_shared_reg_images_ -= 1
+
+    def EstimateInitialTwoViewGeometry(self, options, image_id1, image_id2):
+        image_pair_id = self.images_manager_.ImagePairToPairId(image_id1, image_id2)
+
+        if self.prev_init_image_pair_id_ == image_pair_id:
+            return True
+
+        # TODO: this should get loaded from the database, make sure this way works to
+        image1 = self.reconstruction_.images[image_id1]
+        camera1 = self.reconstruction_.cameras[image1.camera_id]
+
+        image2 = self.reconstruction_.images[image_id2]
+        camera2 = self.reconstruction_.cameras[image2.camera_id]
+
+        matches = self.graph_.find_correspondences_between_images(image_id1, image_id2)
+
+        points1 = [image1.points2D[point_id[0]].xy for point_id in matches]
+
+        points2 = [image2.points2D[point_id[1]].xy for point_id in matches]
+
+        two_view_geometry_options = pycolmap.TwoViewGeometryOptions()
+        two_view_geometry_options.ransac.min_num_trials = 30
+        two_view_geometry_options.ransac.max_error = options.init_max_error
+
+        answer = pycolmap.two_view_geometry_estimation(points1, points2, camera1, camera2, two_view_geometry_options)
+
+        if not answer["success"]:
+            return False
+
+        # Some optical flow/motion constraint to make sure the baseline is big enough
+        flow_constr = sum(abs(np.array(points1) - np.array(points2))[answer["inliers"]])
+        flow_constr = flow_constr / sum(answer["inliers"])
+        # Just using the one camera assuming we have only one
+        fx = camera1.focal_length_x
+        fy = camera1.focal_length_y
+        f = np.array([fx, fy])
+        flow_constr = sum(flow_constr / f)
+
+        if flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(answer["tvec"][2]) < options.init_max_forward_motion:
+            # TODO: Note the Colmap code checks also the triagulation angle but this seems not really possible with the pycolmap bindings
+            # see: https://github.com/colmap/colmap/blob/dev/src/estimators/two_view_geometry.cc/#L216-L217
+            self.prev_init_image_pair_id_ = image_pair_id
+            self.prev_init_two_view_geometry_ = answer
+            return True
+
+        return False
     # ========================= "public" ======================================
 
     # Create incremental mapper.
@@ -367,13 +370,13 @@ class IncrementalMapper:
                 image_id2 = image_ids2[i2]
                 pair_id = self.images_manager_.ImagePairToPairId(image_id1, image_id2)
 
-            if self.init_image_pairs_.count(pair_id) > 0:
-                continue
+                if self.init_image_pairs_.count(pair_id) > 0:
+                    continue
 
-            self.init_image_pairs_.append(pair_id)
+                self.init_image_pairs_.append(pair_id)
 
-            if self.EstimateInitialTwoViewGeometry(options, image_id1, image_id2):
-                return True, image_id1, image_id2
+                if self.EstimateInitialTwoViewGeometry(options, image_id1, image_id2):
+                    return True, image_id1, image_id2
 
         return False, -1, -1
 
@@ -388,7 +391,7 @@ class IncrementalMapper:
         if self.reconstruction_ is None:
             print("Incremental Mapper (RegisterInitialImagePair): reconstruction is NONE!")
 
-        if self.reconstruction_.num_reg_images != 0:
+        if self.reconstruction_.num_reg_images() != 0:
             print("Incremental Mapper (RegisterInitialImagePair): reconstruction has already images registered!")
 
         options.check()
@@ -411,10 +414,7 @@ class IncrementalMapper:
         # Estimate two-view geometry
         # ==========================
 
-        # adds correspondences in the graph
-        self.images_manager_.add_to_correspondence_graph(image_id1, image_id2)
-
-        if self.EstimateInitialTwoViewGeometry(options, image_id1, image_id2):
+        if not self.EstimateInitialTwoViewGeometry(options, image_id1, image_id2):
             return False
 
         R = np.eye(3)
@@ -440,7 +440,7 @@ class IncrementalMapper:
         self.RegisterImageEvent(image_id1)
         self.RegisterImageEvent(image_id2)
 
-        corrs = self.graph_.find_correspondences_between_images(image_id1, image_id2)
+        # corrs = self.graph_.find_correspondences_between_images(image_id1, image_id2)
 
         # TODO check that triangulation alone works and we do not have to manually set these things
         '''
@@ -456,12 +456,13 @@ class IncrementalMapper:
         ...
         '''
 
-        options = pycolmap.IncrementalTriangulatorOptions()
-        options.ignore_two_view_track = False
-        self.triangulator_.triangulate_image(options, image_id1)
+        min_tri_angle_rad = self.DegToRad(options.init_min_tri_angle)
+        triang_options = pycolmap.IncrementalTriangulatorOptions()
+        triang_options.ignore_two_view_track = False
+        self.triangulator_.triangulate_image(triang_options, image_id1)
         # Filter3D points with large reprojection error, negative depth, or
         # insufficient triangulation angle
-        self.reconstruction_.filter_all_points3D(options.init_max_error, options.min_tri_angle_rad)
+        self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
 
         return True
 

@@ -39,8 +39,8 @@ def initialize_map(img_pth, frameNames, reconstruction, graph, triangulator, tra
     graph.add_image(old_im.image_id, len(old_im.points2D))
 
     img_list = []
-    for i in range(0):
-        currFrameIdx += 80
+    for i in range(2):
+        currFrameIdx += 60
         kp2, detector2 = features.detector(img_pth,frameNames[currFrameIdx],extractor,used_extractor) #, save=debug, out_pth=slam.outputs, name=(str(currFrameIdx) + '.jpg'))
 
         constant_tvec = []
