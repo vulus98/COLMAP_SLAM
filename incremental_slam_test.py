@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import pycolmap
 from src import enums, images_manager, incremental_mapper, features
+from hloc.utils import viz_3d
 
 # images = Path('data/frames/test1/')
 images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
@@ -33,13 +34,17 @@ if __name__ == '__main__':
     used_extractor = enums.Extractors.ORB
     used_matcher = enums.Matchers.OrbHamming
 
+    # Number of images to comapare a frame to
+    init_max_num_images = 60
+
     # Adds all the images to the reconstruction and correspondence graph
     # Also used for matches and correspondence graph updates
-    imgs_manager = images_manager.ImagesManager(images, frame_names, reconstruction, graph, camera, used_extractor, used_matcher)
+    imgs_manager = images_manager.ImagesManager(images, frame_names, reconstruction, graph, camera, init_max_num_images, used_extractor, used_matcher)
     mapper = incremental_mapper.IncrementalMapper()
-    mapper.BeginReconstruction(reconstruction, graph, images_manager)
+    mapper.BeginReconstruction(reconstruction, graph, imgs_manager)
 
     inc_mapper_options = incremental_mapper.IncrementalMapperOptions()
+    inc_mapper_options.init_max_num_images = init_max_num_images
     # Tries to find a good initial image pair
     sucess, image_id1, image_id2 = mapper.FindInitialImagePair(inc_mapper_options, -1, -1)
     if not sucess:
@@ -48,6 +53,10 @@ if __name__ == '__main__':
     if not mapper.RegisterInitialImagePair(inc_mapper_options, image_id1, image_id2):
         print("No registration for initial image pair")
         exit(-1)
+
+    fig = viz_3d.init_figure()
+    viz_3d.plot_reconstruction(fig, mapper.reconstruction_, min_track_length=0, color='rgb(255,0,0)')
+    fig.show()
 
     # Example usage:
     # while (...) {
