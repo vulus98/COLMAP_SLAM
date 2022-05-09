@@ -2,7 +2,8 @@ import pycolmap
 import numpy as np
 from src.enums import ImageSelectionMethod
 
-
+# TODO: add keyframe list
+# register next image, find next images
 class IncrementalMapperOptions:
     # Minimum number of inliers for initial image pair.
     init_min_num_inliers = 100

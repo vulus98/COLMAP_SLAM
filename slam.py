@@ -7,9 +7,9 @@ from src import map_initialization, enums, optimization, viz
 from hloc.utils import viz_3d
 from tqdm import tqdm
 
-
 # images = Path('data/frames/test1/')
-images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
+images = Path('data/rgbd_dataset_freiburg1_xyz/rgb/')
+images = Path('data/kitti/frames/')
 outputs = Path('out/test1/')
 # sfm_pairs = outputs / 'pairs-sfm.txt'
 # loc_pairs = outputs / 'pairs-loc.txt'
@@ -20,29 +20,9 @@ exports = outputs / 'reconstruction.ply'
 db = sfm_dir / 'database.db'
 
 # if false, the hloc viz will be used
-USE_OPEN_3D = True
+USE_OPEN_3D = False
 
 # points_exports = outputs / 'reconstruction_points.ply'
-
-
-# FLANN is a nearest neighbour matching. Fast and less accurate.
-# HAMMING returns the best match, accurate but slow.
-
-def euc_dist_check(pt1, pt2):
-    dist = (pt1[0] - pt2[0]) ** 2 + (pt1[1] - pt2[1]) ** 2
-    if (2 ** 2) < dist < (4 ** 2):
-        a = 0
-    return (0) < dist < (2 ** 2)
-
-
-def good_matches(keypoint, query, matches):
-    kp1 = keypoint["kp"]
-    # des1 = keypoint["des"]
-    kp2 = query["kp"]
-    # des2 = query["des"]
-    # apparently the first image you give for the matcher is the query and the second one the train
-    return [match for match in matches if euc_dist_check(kp1[match.queryIdx].pt, kp2[match.trainIdx].pt)]
-    # return [match for match in matches if euc_dist_check(kp1[match.trainIdx].pt, kp2[match.queryIdx].pt)]
 
 
 # Output corresponding to the evaluation of the TUM-RGBD dataset
@@ -70,7 +50,7 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frameNames.sort()
 
-    frameNames = frameNames[:min(len(frameNames), 200)]
+    frameNames = frameNames[:min(len(frameNames), 350)]
 
     # TODO: look into hloc and preprocess feature extraction and matching
     # retrieval_path = extract_features.main(retrieval_conf, images, image_list=frameNames, feature_path=features)
@@ -173,12 +153,12 @@ if __name__ == '__main__':
     # fig.show()
 
     pbar = tqdm(total=len(frameNames) - currFrameIdx)
-    while success and currFrameIdx < len(frameNames):
+    while success and currFrameIdx < len(frameNames[:100]) and False:
         old_im = reconstruction.images[last_keyframeidx]
         # https://vision.in.tum.de/data/datasets/rgbd-dataset/online_evaluation
         # For the evaluation use freiburg2/xyz and the estimation.txt from out/test1/sfm
 
-        # extracting keypoints snd the relative descriptors of an image
+        # extracting keypoints and the relative descriptors of an image
         kp, detector_map[currFrameIdx] = features.detector(images, frameNames[currFrameIdx], extractor, used_extractor)
 
         points2D = [keypoint.pt for keypoint in kp]
@@ -223,7 +203,7 @@ if __name__ == '__main__':
             im.registered = True
             reconstruction.add_image(im)
 
-            # TODO should be done after motion only BA and for motuion only ba just use the inliers
+            # TODO should be done after motion only BA and for motion only ba just use the inliers
             # Triangulate the points of the image based on the pose graph correlations and the 2D-3D correspondences
             num_tri = triangulator.triangulate_image(options, im.image_id)
             # num_tri = triangulator.complete_image(options, im.image_id)
@@ -236,11 +216,11 @@ if __name__ == '__main__':
             # print("Filtered", ret_f, "3D points out")
 
             if num_tri - ret_f >= 100:
-                motion_ba = optimization.BundleAdjuster(reconstruction, debug=False)
-                # Set initial image pose as fixed
-                motion_ba.constant_pose = [keyframe_idxes[0]]
-                motion_ba.constant_tvec = [keyframe_idxes[1]]
-                motion_ba.motion_only_BA([im.image_id])
+                # motion_ba = optimization.BundleAdjuster(reconstruction, debug=False)
+                # # Set initial image pose as fixed
+                # motion_ba.constant_pose = [keyframe_idxes[0]]
+                # motion_ba.constant_tvec = [keyframe_idxes[1]]
+                # motion_ba.motion_only_BA([im.image_id])
 
                 # num_trib = triangulator.triangulate_image(options, im.image_id)
                 # print("triangulated", num_tri, " new 3D points")
@@ -291,6 +271,8 @@ if __name__ == '__main__':
         rec.add_image(im)
     reconstruction.export_PLY(exports)
     # rec.export_PLY(points_exports)
+
+    print(f"Reconstruction Summary (after all triangulations):{reconstruction.summary()}")
 
     if USE_OPEN_3D:
         viz.show(rec)

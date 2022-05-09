@@ -41,13 +41,21 @@ if __name__ == '__main__':
 
     inc_mapper_options = incremental_mapper.IncrementalMapperOptions()
     # Tries to find a good initial image pair
-    sucess, image_id1, image_id2 = mapper.FindInitialImagePair(inc_mapper_options, -1, -1)
-    if not sucess:
+    success, image_id1, image_id2 = mapper.FindInitialImagePair(inc_mapper_options, -1, -1)
+    if not success:
         print("No good initial image pair found")
         exit(-1)
-    if not mapper.RegisterInitialImagePair(inc_mapper_options, image_id1, image_id2):
+    reg_init_success = mapper.RegisterInitialImagePair(inc_mapper_options, image_id1, image_id2)
+    if not reg_init_success:
         print("No registration for initial image pair")
         exit(-1)
+    if success:
+        print(f"Initializing map with image pair {image_id1} and {image_id2}")
+
+    # Adjust global bundle
+    # filter points
+    # filter images
+    # print(reconstruction summary)
 
     # Example usage:
     # while (...) {
