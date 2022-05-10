@@ -10,7 +10,7 @@ from tqdm import tqdm
 class ImagesManager:
     """
     This class stores the used image list and their correspondent features and matches
-    Should be seen as a substitiution for the database
+    Should be seen as a substitution for the database
     """
 
     # The path to the images on the disk
@@ -31,7 +31,7 @@ class ImagesManager:
     # List of all image ids
     image_ids = []
 
-    # The recontruction object
+    # The reconstruction object
     reconstruction = None
 
     # The correspondence graph
