@@ -1,6 +1,7 @@
 import pycolmap
 import numpy as np
 from src.enums import ImageSelectionMethod
+from src.optimization import BundleAdjuster
 
 
 class IncrementalMapperOptions:
@@ -76,7 +77,7 @@ class IncrementalMapperOptions:
 class IncrementalMapper:
     # =========================== "private" ===============================
 
-        # Class that holds data of the reconstruction.
+    # Class that holds data of the reconstruction.
     reconstruction_ = None
 
     # Class that holds the correspondece graph
@@ -145,6 +146,7 @@ class IncrementalMapper:
         image_infos = []
 
         max_len = min(self.reconstruction_.num_images(), options.init_max_num_images)
+        # max_len = min(self.reconstruction_.num_images(), int(options.init_max_num_images * 2))
         for image in [self.reconstruction_.images[img_id] for img_id in self.images_manager_.image_ids[:max_len]]:
             # Only images with correspondences can be registered.
             if image.num_correspondences == 0:
@@ -169,7 +171,8 @@ class IncrementalMapper:
 
         # Sort images such that images with a prior focal length and more
         # correspondences are preferred, i.e. they appear in the front of the list.
-        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]), reverse=True)
+        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]),
+                             reverse=True)
 
         # Extract image identifiers in sorted order.
         image_ids = [image_info["image_id"] for image_info in image_infos]
@@ -203,13 +206,13 @@ class IncrementalMapper:
 
         # Sort images such that images with a prior focal length and more
         # correspondences are preferred, i.e. they appear in the front of the list.
-        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]), reverse=True)
+        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]),
+                             reverse=True)
 
         # Extract image identifiers in sorted order.
         image_ids = [image_info["image_id"] for image_info in image_infos]
 
         return image_ids
-
 
     # Find local bundle for given image in the reconstruction. The local bundle
     # is defined as the images that are most connected, i.e. maximum number of
@@ -245,6 +248,8 @@ class IncrementalMapper:
                 self.num_total_reg_images_ -= 1
             elif num_regs_for_image > 0:
                 self.num_shared_reg_images_ -= 1
+
+        self.images_manager_.deregister_image(image_id)
 
     def EstimateInitialTwoViewGeometry(self, options, image_id1, image_id2):
         image_pair_id = self.images_manager_.ImagePairToPairId(image_id1, image_id2)
@@ -283,7 +288,8 @@ class IncrementalMapper:
         f = np.array([fx, fy])
         flow_constr = sum(flow_constr / f)
 
-        if flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(answer["tvec"][2]) < options.init_max_forward_motion:
+        if flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
+                answer["tvec"][2]) < options.init_max_forward_motion:
             # TODO: Note the Colmap code checks also the triagulation angle but this seems not really possible with the pycolmap bindings
             # see: https://github.com/colmap/colmap/blob/dev/src/estimators/two_view_geometry.cc/#L216-L217
             self.prev_init_image_pair_id_ = image_pair_id
@@ -291,6 +297,7 @@ class IncrementalMapper:
             return True
 
         return False
+
     # ========================= "public" ======================================
 
     # Create incremental mapper.
@@ -466,7 +473,6 @@ class IncrementalMapper:
 
         return True
 
-
     # Attempt to register image to the existing model. This requires that
     # a previous call to `RegisterInitialImagePair` was successful.
     def RegisterNextImage(self, options, image_id):
@@ -510,14 +516,39 @@ class IncrementalMapper:
 
     # Global bundle adjustment using Ceres Solver or PBA.
     def AdjustGlobalBundle(self, options, ba_options):
-        a = 0
+        reg_image_ids = self.reconstruction_.num_reg_images()
+
+        if reg_image_ids < 2:
+            print("Not enough registered images for global BA")
+            return False
+
+        ba = BundleAdjuster(self.reconstruction_, options=ba_options)
+        if not ba.global_BA():
+            return False
+
+        # TODO check how to normalize
+        # self.reconstruction_.normalize()
+        return True
 
     # Filter images and point observations.
+    # Mainly based on the focal length
     def FilterImages(self, options):
-        a = 0
+        kMinNumImages = 20
+        if self.reconstruction_.num_reg_images() < kMinNumImages:
+            return []
+
+        image_ids = self.reconstruction_.filter_images(options.min_focal_length_ratio, options.max_focal_length_ratio,
+                                                       options.max_extra_param)
+
+        filtered_images = []
+        for img_id in image_ids:
+            self.DeRegisterImageEvent(img_id)
+            filtered_images.append(img_id)
+
+        return len(image_ids)
 
     def FilterPoints(self, options):
-        a = 0
+        return self.reconstruction_.filter_all_points3D(options.filter_max_reproj_error, options.filter_min_tri_angle)
 
     def GetReconstruction(self):
         a = 0

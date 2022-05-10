@@ -93,6 +93,9 @@ class ImagesManager:
         for image_id2 in self.image_ids[max(0, image_id - self.init_max_num_images):image_id]:
             self.add_to_correspondence_graph(image_id, image_id2)
 
+    def deregister_image(self, image_id):
+        self.reconstruction.images[image_id].registered = False
+
     def match_images(self, image_id1, image_id2):
         matches = features.matcher(self.detector_map[image_id1], self.detector_map[image_id2], self.matcher,
                                    self.used_matcher)

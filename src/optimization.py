@@ -7,7 +7,7 @@ import pycolmap
 
 class BundleAdjuster:
     # rec is the reconstruction object
-    def __init__(self, rec, debug=True):
+    def __init__(self, rec, options=None, debug=True):
         self.rec = rec
         self.img_list = []
         self.prob = pyceres.Problem()
@@ -16,12 +16,16 @@ class BundleAdjuster:
         self.constant_pose = []
         self.constant_tvec = []
         self.constant_points = []
+        if options is None:
+            self.options = pyceres.SolverOptions()
+        else:
+            self.options = options
         # self.prob = None
 
     # Full BA optimizing 3D points and poses
     # Should be used at map initialization
     # skip_pose indicates a list of image.id where the pose should not be optimized (i.e. origin)
-    def global_BA(self, skip_points=None):
+    def global_BA(self):
         self.prob = pyceres.Problem()
 
         # Loss function types: Trivial(non - robust) and Cauchy(robust) loss.
@@ -32,10 +36,13 @@ class BundleAdjuster:
         self.img_list = [im for im in self.rec.images.values() if im.registered]
         img_list_id = [im.image_id for im in self.img_list]
         img_list_id.sort()
-        # Do not optimize pose of first image
-        self.constant_pose = [img_list_id[0]]
-        # Do not optimize x-trnslation of second image
-        self.constant_tvec = [img_list_id[1]]
+
+        if not self.constant_pose:
+            # Do not optimize pose of first image
+            self.constant_pose = [img_list_id[0]]
+        if not self.constant_tvec:
+            # Do not optimize x-trnslation of second image
+            self.constant_tvec = [img_list_id[1]]
 
         varible_points = []
         for im in self.img_list:
@@ -54,6 +61,8 @@ class BundleAdjuster:
         self.parameterize_points()
 
         self.solve()
+
+        return True
 
     # Local BA: all points associated to images in the img_list are optimized, the poses stay fixed
     # img_list stores the id s of images that should get optimized
@@ -104,7 +113,7 @@ class BundleAdjuster:
         cam = self.rec.cameras[im.camera_id]
         im.qvec = pycolmap.normalize_qvec(im.qvec)
         constant_pose = True if im.image_id in self.constant_pose else False
-        is_constant_tvec = True if im.image_id in self.constant_pose else False
+        is_constant_tvec = True if im.image_id in self.constant_tvec else False
         for p in im.get_valid_points2D():
             self.point3D_num_observations[p.point3D_id] = self.point3D_num_observations.get(p.point3D_id, 0) + 1
             assert self.rec.points3D[p.point3D_id].track.length() > 1
@@ -196,18 +205,17 @@ class BundleAdjuster:
     def solve(self):
         if self.debug:
             print(self.prob.num_parameter_bocks(), self.prob.num_parameters(), self.prob.num_residual_blocks(), self.prob.num_residuals())
-        options = pyceres.SolverOptions()
 
         # See: https://github.com/colmap/colmap/blob/e180948665b03c4a12d45e2ca39a589f42fdbda6/src/optim/bundle_adjustment.cc#L276-L286
         if len(self.img_list) <= 50:
-            options.linear_solver_type = pyceres.LinearSolverType.DENSE_QR
+            self.options.linear_solver_type = pyceres.LinearSolverType.DENSE_QR
         else:
-            options.linear_solver_type = pyceres.LinearSolverType.ITERATIVE_SCHUR
-            options.preconditioner_type = pyceres.PreconditionerType.SCHUR_JACOBI
+            self.options.linear_solver_type = pyceres.LinearSolverType.ITERATIVE_SCHUR
+            self.options.preconditioner_type = pyceres.PreconditionerType.SCHUR_JACOBI
 
-        options.minimizer_progress_to_stdout = self.debug
-        options.num_threads = -1
+        self.options.minimizer_progress_to_stdout = self.debug
+        self.options.num_threads = -1
         summary = pyceres.SolverSummary()
-        pyceres.solve(options, self.prob, summary)
+        pyceres.solve(self.options, self.prob, summary)
         if self.debug:
             print(summary.BriefReport())
