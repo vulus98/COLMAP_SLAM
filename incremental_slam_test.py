@@ -14,7 +14,7 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frame_names.sort()
 
-    frame_names = frame_names[:min(len(frame_names), 200)]
+    frame_names = frame_names[:min(len(frame_names), 300)]
 
     # Camera for Freiburg2/xyz
     camera = pycolmap.Camera(
@@ -52,6 +52,8 @@ if __name__ == '__main__':
     if success:
         print(f"Initializing map with image pair {image_id1} and {image_id2}")
 
+    find_next_keyframe = mapper.FindNextKeyframe(inc_mapper_options)
+
     # Adjust global bundle
     # filter points
     # filter images
@@ -59,7 +61,7 @@ if __name__ == '__main__':
 
     # Example usage:
     # while (...) {
-    #   const auto next_image_ids = mapper.FindNextImages(options);
+    #   const auto next_image_ids = mapper.FindNextKeyframe(options);
     #   for (const auto image_id: next_image_ids) {
     #       CHECK(mapper.RegisterNextImage(options, image_id));
     #       if (...) {

@@ -77,6 +77,8 @@ class IncrementalMapperOptions:
 class IncrementalMapper:
     # =========================== "private" ===============================
 
+    # TODO: add keyframe index store
+
     # This function does not seem to get exposed from pycolmap
     def DegToRad(self, deg):
         return deg * np.pi / 180
@@ -89,7 +91,7 @@ class IncrementalMapper:
         init_max_reg_trials = options.init_max_reg_trials
 
         # Collect information of all not yet registered images with
-        # correspondences. We considre onyl the options.
+        # correspondences. We consider only the options.
         image_infos = []
 
         max_len = max(self.reconstruction_.num_images(), options.init_max_num_images)
@@ -302,7 +304,7 @@ class IncrementalMapper:
     # (in which case `RegisterInitialImagePair` must be called).
     def BeginReconstruction(self, reconstruction, graph, images_manager):
         if self.reconstruction_ != None:
-            print("Reconstruction objet in Incremental Mapper should be empty!")
+            print("Reconstruction objec;t in Incremental Mapper should be empty!")
         self.reconstruction_ = reconstruction
         self.graph_ = graph
         self.images_manager_ = images_manager
@@ -381,8 +383,32 @@ class IncrementalMapper:
     # Find best next image to register in the incremental reconstruction. The
     # images should be passed to `RegisterNextImage`. This function automatically
     # ignores images that failed to registered for `max_reg_trials`.
-    def FindNextImages(self, options):
+    def FindNextKeyframe(self, options):
+        print(options)
+        print(f"Printing reconstruction summary from inside the findnextkeyframe function in incremental_mapper.py: {self.reconstruction_.summary()}")
         a = 0
+
+        condition1 =
+        condition2 = currFrameIdx - last_keyframeidx > 20
+        condition3 =
+        condition4 = reconstruction.images[currFrameIdx].num_points3D() < 0.9 * \
+                reconstruction.images[last_keyframeidx].num_points3D()
+        condition5 =
+
+        all_conditions_satisfied = np.all([condition1, condition2, condition3, condition4, condition5])
+
+
+        if all_conditions_satisfied:
+
+            self.triangulator_.complete_image(options, im.image_id)
+            last_keyframeidx = currFrameIdx
+            keyframe_idxes.append(currFrameIdx)
+            # For evaluation of dataset purposes
+            f.write(img_to_name(frameNames[currFrameIdx], reconstruction.images[im.image_id]))
+        else:
+            reconstruction.deregister_image(im.image_id)
+
+
 
     # Attempt to seed the reconstruction from an image pair.
     def RegisterInitialImagePair(self, options, image_id1, image_id2):
