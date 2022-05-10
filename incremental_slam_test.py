@@ -1,8 +1,10 @@
 import os
 from pathlib import Path
 import pycolmap
+import pyceres
 from src import enums, images_manager, incremental_mapper, features
 from hloc.utils import viz_3d
+import numpy as np
 
 # images = Path('data/frames/test1/')
 images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
@@ -31,6 +33,9 @@ if __name__ == '__main__':
     graph = pycolmap.CorrespondenceGraph()
 
     # The chose feature detector and matcher
+    # used_extractor = enums.Extractors.SuperPoint
+    # used_matcher = enums.Matchers.SuperGlue
+
     used_extractor = enums.Extractors.ORB
     used_matcher = enums.Matchers.OrbHamming
 
@@ -54,8 +59,28 @@ if __name__ == '__main__':
         print("No registration for initial image pair")
         exit(-1)
 
+    print("Initialized with images:", image_id1, "and", image_id2)
+    bundle_adj_options = pyceres.SolverOptions()
+    # a = mapper.AdjustGlobalBundle(inc_mapper_options, bundle_adj_options)
+    b = mapper.FilterPoints(inc_mapper_options)
+    # Most likely not needed
+    # c = mapper.FilterImages(inc_mapper_options)
+
+    if reconstruction.num_reg_images() == 0 or reconstruction.num_points3D() == 0:
+        print("To many points have been filtered out or image(s) not valid")
+        exit(-1)
+
+    rec = pycolmap.Reconstruction()
+    rec.add_camera(camera)
+    for p in mapper.reconstruction_.points3D.values():
+        rec.add_point3D(p.xyz, pycolmap.Track(), np.zeros(3))
+    registered_list = [img for img in mapper.reconstruction_.images.values() if img.registered]
+    # every_nth_element = max(1, int(len(registered_list) / 30))
+    for im in registered_list:# [::every_nth_element]:
+        rec.add_image(im)
+
     fig = viz_3d.init_figure()
-    viz_3d.plot_reconstruction(fig, mapper.reconstruction_, min_track_length=0, color='rgb(255,0,0)')
+    viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(255,0,0)')
     fig.show()
 
     # Example usage:
@@ -65,7 +90,7 @@ if __name__ == '__main__':
     #       CHECK(mapper.RegisterNextImage(options, image_id));
     #       if (...) {
     #           mapper.AdjustLocalBundle(...);
-#           } else {
+    #           } else {
     #           mapper.AdjustGlobalBundle(...);
     #       }
     #   }
