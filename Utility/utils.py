@@ -45,7 +45,7 @@ def cell_variance(features1, features2, img_size, levels=3):
             plt.plot([x[0] for x in features2], [x[1] for x in features2],'rx')
             plt.title(f"Level {i+1}")
 
-        # Since entries are proportial to the resolution each score is already weighted
+        # Since entries are proportional to the resolution each score is already weighted
         score+=sum(cells)
 
     if DEBUG:
@@ -54,6 +54,6 @@ def cell_variance(features1, features2, img_size, levels=3):
 
     return score
 
-def img_renamer(path):
-    for f in os.listdir(path):
+# def img_renamer(path):
+#     for f in os.listdir(path):
         

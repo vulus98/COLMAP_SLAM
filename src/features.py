@@ -12,7 +12,7 @@ import torch
 '''
 def init(used_extractor,used_matcher):
     if used_extractor == enums.Extractors.ORB:
-        extractor=cv.ORB_create(nfeatures=1000)
+        extractor=cv.ORB_create(nfeatures=4096)
     elif used_extractor == enums.Extractors.SuperPoint:
         feature_conf = extract_features.confs['superpoint_aachen']
         device = 'cuda' if torch.cuda.is_available() else 'cpu'

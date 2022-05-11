@@ -1,10 +1,12 @@
 import os
 from pathlib import Path
 import pycolmap
-from src import enums, images_manager, incremental_mapper, features
+from src import enums, images_manager, incremental_mapper
 from hloc.utils import viz_3d
+from Utility.logger_setup import get_logger
 
-# images = Path('data/frames/test1/')
+logger = get_logger(__name__)
+
 images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
 images = Path('data/kitti/frames/')
 outputs = Path('out/test1/')
@@ -16,7 +18,7 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frame_names.sort()
 
-    frame_names = frame_names[:min(len(frame_names), 200)]
+    frame_names = frame_names[:min(len(frame_names), 3)] # TODO: reduced to 3 only for testing
 
     # Camera for Freiburg2/xyz
     camera = pycolmap.Camera(
@@ -31,11 +33,11 @@ if __name__ == '__main__':
     reconstruction.add_camera(camera)
     graph = pycolmap.CorrespondenceGraph()
 
-    # The chose feature detector and matcher
+    # The chosen feature detector and matcher
     used_extractor = enums.Extractors.ORB
     used_matcher = enums.Matchers.OrbHamming
 
-    # Number of images to comapare a frame to
+    # Number of images to compare a frame to
     init_max_num_images = 60
 
     # Adds all the images to the reconstruction and correspondence graph
@@ -49,20 +51,32 @@ if __name__ == '__main__':
     # Tries to find a good initial image pair
     success, image_id1, image_id2 = mapper.FindInitialImagePair(inc_mapper_options, -1, -1)
     if not success:
-        print("No good initial image pair found")
+        logger.warning("No good initial image pair found")
         exit(-1)
-    if not mapper.RegisterInitialImagePair(inc_mapper_options, image_id1, image_id2):
+    reg_init_success = mapper.RegisterInitialImagePair(inc_mapper_options, image_id1, image_id2)
+    if not reg_init_success:
         print("No registration for initial image pair")
         exit(-1)
+
+    if success:
+        print(f"Initializing map with image pair {image_id1} and {image_id2}")
+
+    find_next_keyframe = mapper.FindNextKeyframe(inc_mapper_options)
+
     print(f"Summary of the reconstruction at the end of the mapper: {mapper.reconstruction_.summary()}")
 
     fig = viz_3d.init_figure()
     viz_3d.plot_reconstruction(fig, mapper.reconstruction_, min_track_length=0, color='rgb(255,0,0)')
     fig.show()
 
+    # Adjust global bundle
+    # filter points
+    # filter images
+    # print(reconstruction summary)
+
     # Example usage:
     # while (...) {
-    #   const auto next_image_ids = mapper.FindNextImages(options);
+    #   const auto next_image_ids = mapper.FindNextKeyframe(options);
     #   for (const auto image_id: next_image_ids) {
     #       CHECK(mapper.RegisterNextImage(options, image_id));
     #       if (...) {
