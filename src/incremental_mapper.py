@@ -312,7 +312,7 @@ class IncrementalMapper:
     # (in which case `RegisterInitialImagePair` must be called).
     def BeginReconstruction(self, reconstruction, graph, images_manager):
         if self.reconstruction_ != None:
-            print("Reconstruction objec;t in Incremental Mapper should be empty!")
+            logger.warning("Reconstruction object in Incremental Mapper should be empty!")
         self.reconstruction_ = reconstruction
         self.graph_ = graph
         self.images_manager_ = images_manager
@@ -337,7 +337,7 @@ class IncrementalMapper:
     # be updated accordingly. Bool
     def EndReconstruction(self, discard):
         if self.reconstruction_ is None:
-            print("Calling EndReconstuction on an empty reconstruction!")
+            logger.warning("Calling EndReconstuction on an empty reconstruction!")
         else:
             if discard:
                 for img_ids in self.reconstruction_.reg_image_ids():
@@ -392,8 +392,7 @@ class IncrementalMapper:
     # images should be passed to `RegisterNextImage`. This function automatically
     # ignores images that failed to registered for `max_reg_trials`.
     def FindNextKeyframe(self, options):
-        print(options)
-        print(f"Printing reconstruction summary from inside the findnextkeyframe function in incremental_mapper.py: {self.reconstruction_.summary()}")
+        logger.debug(options)
         a = 0
 
 
@@ -423,10 +422,10 @@ class IncrementalMapper:
     # Attempt to seed the reconstruction from an image pair.
     def RegisterInitialImagePair(self, options, image_id1, image_id2):
         if self.reconstruction_ is None:
-            print("Incremental Mapper (RegisterInitialImagePair): reconstruction is NONE!")
+            logger.warning("Incremental Mapper (RegisterInitialImagePair): reconstruction is NONE!")
 
         if self.reconstruction_.num_reg_images() != 0:
-            print("Incremental Mapper (RegisterInitialImagePair): reconstruction has already images registered!")
+            logger.warning("Incremental Mapper (RegisterInitialImagePair): reconstruction has already images registered!")
 
         options.check()
 

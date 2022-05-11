@@ -18,7 +18,7 @@ if __name__ == '__main__':
     # Assuming the frames are indexed
     frame_names.sort()
 
-    frame_names = frame_names[:min(len(frame_names), 3)] # TODO: reduced to 3 only for testing
+    frame_names = frame_names[:min(len(frame_names), 30)] # TODO: reduced to 3 only for testing
 
     # Camera for Freiburg2/xyz
     camera = pycolmap.Camera(
@@ -55,15 +55,15 @@ if __name__ == '__main__':
         exit(-1)
     reg_init_success = mapper.RegisterInitialImagePair(inc_mapper_options, image_id1, image_id2)
     if not reg_init_success:
-        print("No registration for initial image pair")
+        logger.warning("No registration for initial image pair")
         exit(-1)
 
     if success:
-        print(f"Initializing map with image pair {image_id1} and {image_id2}")
+        logger.info(f"Initializing map with image pair {image_id1} and {image_id2}")
 
     find_next_keyframe = mapper.FindNextKeyframe(inc_mapper_options)
 
-    print(f"Summary of the reconstruction at the end of the mapper: {mapper.reconstruction_.summary()}")
+    logger.info(f"Summary of the reconstruction at the end of the mapper: {mapper.reconstruction_.summary()}")
 
     fig = viz_3d.init_figure()
     viz_3d.plot_reconstruction(fig, mapper.reconstruction_, min_track_length=0, color='rgb(255,0,0)')
