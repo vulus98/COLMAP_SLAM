@@ -33,9 +33,10 @@ class BundleAdjuster:
 
         self.rec.filter_observations_with_negative_depth()
 
-        self.img_list = [im for im in self.rec.images.values() if im.registered]
-        img_list_id = [im.image_id for im in self.img_list]
-        img_list_id.sort()
+        if not self.img_list:
+            self.img_list = [im for im in self.rec.images.values() if im.registered]
+            img_list_id = [im.image_id for im in self.img_list]
+            img_list_id.sort()
 
         if not self.constant_pose:
             # Do not optimize pose of first image
@@ -47,15 +48,11 @@ class BundleAdjuster:
         varible_points = []
         for im in self.img_list:
             self.add_img_to_problem(im.image_id, loss)
-            for p in im.get_valid_points2D():
-                varible_points.append(p.point3D_id)
+            # for p in im.get_valid_points2D():
+               # varible_points.append(p.point3D_id)
 
         for p in varible_points:
             self.add_point_to_problem(p, loss)
-
-        # TODO find out if we also need to set constant points
-        # for p in constant_points:
-        #    self.add_point_to_problem(p, loss)
 
         self.parameterize_camera()
         self.parameterize_points()
@@ -114,6 +111,7 @@ class BundleAdjuster:
         im.qvec = pycolmap.normalize_qvec(im.qvec)
         constant_pose = True if im.image_id in self.constant_pose else False
         is_constant_tvec = True if im.image_id in self.constant_tvec else False
+
         for p in im.get_valid_points2D():
             self.point3D_num_observations[p.point3D_id] = self.point3D_num_observations.get(p.point3D_id, 0) + 1
             assert self.rec.points3D[p.point3D_id].track.length() > 1
@@ -131,6 +129,7 @@ class BundleAdjuster:
                 self.prob.set_parameterization(im.tvec, pyceres.SubsetParameterization(3, [0]))
 
     def add_point_to_problem(self, point3D_id, loss):
+        # pyceres.Problem().
         point3D = self.rec.points3D[point3D_id]
         if self.point3D_num_observations.get(point3D_id, 0) != point3D.track.length():
             for track_el in point3D.track.elements:
@@ -153,6 +152,9 @@ class BundleAdjuster:
     def parameterize_points(self):
         for key in self.point3D_num_observations:
             point3D = self.rec.points3D[key]
+            a = point3D.track.length()
+            b = self.point3D_num_observations[key]
+            c = a > b
             if point3D.track.length() > self.point3D_num_observations[key]:
                 self.prob.set_parameter_block_constant(point3D.xyz)
 
@@ -208,7 +210,8 @@ class BundleAdjuster:
 
         # See: https://github.com/colmap/colmap/blob/e180948665b03c4a12d45e2ca39a589f42fdbda6/src/optim/bundle_adjustment.cc#L276-L286
         if len(self.img_list) <= 50:
-            self.options.linear_solver_type = pyceres.LinearSolverType.DENSE_QR
+            self.options.linear_solver_type = pyceres.LinearSolverType.DENSE_SCHUR
+            # self.options.linear_solver_type = pyceres.LinearSolverType.DENSE_QR
         else:
             self.options.linear_solver_type = pyceres.LinearSolverType.ITERATIVE_SCHUR
             self.options.preconditioner_type = pyceres.PreconditionerType.SCHUR_JACOBI
