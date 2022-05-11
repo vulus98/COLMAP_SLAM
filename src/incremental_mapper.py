@@ -1,4 +1,5 @@
 import pycolmap
+import pyceres
 import numpy as np
 from src.enums import ImageSelectionMethod
 from src.optimization import BundleAdjuster
@@ -288,6 +289,7 @@ class IncrementalMapper:
         f = np.array([fx, fy])
         flow_constr = sum(flow_constr / f)
 
+        # if abs(image_id1 - image_id2) > 30 and flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
         if flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
                 answer["tvec"][2]) < options.init_max_forward_motion:
             # TODO: Note the Colmap code checks also the triagulation angle but this seems not really possible with the pycolmap bindings
@@ -354,13 +356,13 @@ class IncrementalMapper:
         image_ids1 = []
         if image_id1 != self.kInvalidImageId and image_id2 == self.kInvalidImageId:
             # Only first image provided
-            if self.images_manager_.exists_image(image_id1):
+            if not self.images_manager_.exists_image(image_id1):
                 return False, -1, -1
 
             image_ids1.append(image_id1)
         elif image_id1 == self.kInvalidImageId and image_id2 != self.kInvalidImageId:
             # Only second image provided
-            if self.images_manager_.exists_image(image_id2):
+            if not self.images_manager_.exists_image(image_id2):
                 return False, -1, -1
 
             image_ids1.push_back(image_id2)
@@ -512,22 +514,37 @@ class IncrementalMapper:
     # ba_options: Bundle adjustment options
     # tri_options: Triangulator options
     def AdjustLocalBundle(self, options, ba_options, tri_options, image_id, point3D_ids):
+        # The number of images to optimize in local bundle adjustment.
+        ba_local_num_images = 6
+
+        # Ceres solver function tolerance for local bundle adjustment
+        ba_local_function_tolerance = 0.0
+
+        # The maximum number of local bundle adjustment iterations.
+        ba_local_max_num_iterations = 25
+
         a = 0
 
     # Global bundle adjustment using Ceres Solver or PBA.
-    def AdjustGlobalBundle(self, options, ba_options):
+    def AdjustGlobalBundle(self, options, ba_options=None):
         reg_image_ids = self.reconstruction_.num_reg_images()
+
+        if ba_options is None:
+            ba_options = pyceres.SolverOptions()
 
         if reg_image_ids < 2:
             print("Not enough registered images for global BA")
             return False
 
         ba = BundleAdjuster(self.reconstruction_, options=ba_options)
+        # ba.constant_pose = [reg_image_ids[0]]
+        # ba.constant_tvec = [reg_image_ids[1]]
+        # ba.motion_only_BA([self.reconstruction_.images[id] for id in self.reconstruction_.reg_image_ids()])
         if not ba.global_BA():
             return False
 
-        # TODO check how to normalize
-        # self.reconstruction_.normalize()
+        # See: https://github.com/colmap/colmap/blob/dev/src/base/reconstruction.h/#L181
+        # self.reconstruction_.normalize(10.0, 0.1, 0.9, True)
         return True
 
     # Filter images and point observations.
