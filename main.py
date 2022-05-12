@@ -8,7 +8,7 @@ import numpy as np
 
 logger = get_logger(__name__)
 
-images = Path('data/rgbd_dataset_freiburg1_xyz/rgb/')
+images = Path('/home/vule/Documents/COLMAP-SLAM/data/rgbd_dataset_freiburg2_xyz/rgb/')
 # images = Path('data/kitti/frames/')
 outputs = Path('out/test1/')
 exports = outputs / 'reconstruction.ply'
@@ -119,15 +119,15 @@ if __name__ == '__main__':
         while not mapper.RegisterNextImage(inc_mapper_options, next_image_ids[i]):
             i+=1
         num_images += 1
-        # if num_img_last_global_ba * ba_global_images_ratio < num_images \
-        #         and abs(num_images - num_img_last_global_ba) < ba_global_images_ratio \
-        #         and num_points_last_global_ba * ba_global_points_ratio < reconstruction.num_points3D() \
-        #         and abs(reconstruction.num_points3D() - num_points_last_global_ba) < ba_global_points_freq:
-        #     mapper.AdjustLocalBundle(inc_mapper_options, None, None, next_image_ids[i], None)
-        # else:
-        #     mapper.AdjustGlobalBundle(inc_mapper_options)
-        #     num_img_last_global_ba = num_images
-        #     num_points_last_global_ba = reconstruction.num_points3D()
+        if num_img_last_global_ba * ba_global_images_ratio < num_images \
+                and abs(num_images - num_img_last_global_ba) < ba_global_images_ratio \
+                and num_points_last_global_ba * ba_global_points_ratio < reconstruction.num_points3D() \
+                and abs(reconstruction.num_points3D() - num_points_last_global_ba) < ba_global_points_freq:
+            mapper.AdjustLocalBundle(inc_mapper_options, None, None, next_image_ids[i], None)
+        else:
+            mapper.AdjustGlobalBundle(inc_mapper_options)
+            num_img_last_global_ba = num_images
+            num_points_last_global_ba = reconstruction.num_points3D()
         next_image_ids = mapper.FindNextImages(inc_mapper_options)
     #mapper.EndReconstruction(False)
     # # TODO: implement something similar to: https://github.com/colmap/colmap/blob/e180948665b03c4a12d45e2ca39a589f42fdbda6/src/controllers/incremental_mapper.cc/#L379-L632
