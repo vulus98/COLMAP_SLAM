@@ -1,12 +1,15 @@
 import os
 from pathlib import Path
 import pycolmap
-from src import enums, images_manager, incremental_mapper, features
+from src import enums, images_manager, incremental_mapper
 from hloc.utils import viz_3d
+from Utility.logger_setup import get_logger
 import numpy as np
 
-# images = Path('data/frames/test1/')
-images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
+logger = get_logger(__name__)
+
+images = Path('data/rgbd_dataset_freiburg1_xyz/rgb/')
+# images = Path('data/kitti/frames/')
 outputs = Path('out/test1/')
 exports = outputs / 'reconstruction.ply'
 
@@ -50,7 +53,7 @@ if __name__ == '__main__':
     used_extractor = enums.Extractors.SuperPoint
     used_matcher = enums.Matchers.SuperGlue
 
-    # Number of images to comapare a frame to
+    # Number of images to compare a frame to
     init_max_num_images = 60
 
     # Adds all the images to the reconstruction and correspondence graph
@@ -62,15 +65,20 @@ if __name__ == '__main__':
     inc_mapper_options = incremental_mapper.IncrementalMapperOptions()
     inc_mapper_options.init_max_num_images = init_max_num_images
     # Tries to find a good initial image pair
-    sucess, image_id1, image_id2 = mapper.FindInitialImagePair(inc_mapper_options, -1, -1)
-    if not sucess:
-        print("No good initial image pair found")
+    success, image_id1, image_id2 = mapper.FindInitialImagePair(inc_mapper_options, -1, -1)
+    if not success:
+        logger.warning("No good initial image pair found")
         exit(1)
-    if not mapper.RegisterInitialImagePair(inc_mapper_options, image_id1, image_id2):
-        print("No registration for initial image pair")
+    reg_init_success = mapper.RegisterInitialImagePair(inc_mapper_options, image_id1, image_id2)
+    if not reg_init_success:
+        logger.warning("No registration for initial image pair")
         exit(1)
 
-    print("Initialized with images:", image_id1, "and", image_id2)
+    if success:
+        logger.info(f"Initializing map with image pair {image_id1} and {image_id2}")
+
+    logger.info(f"Before bundle Adjustment: {mapper.reconstruction_.summary()}")
+
 
     """
     # ========= DEBUG
@@ -133,7 +141,11 @@ if __name__ == '__main__':
     for im in registered_list:# [::every_nth_element]:
         rec.add_image(im)
 
+
+    logger.info(f"After bundle Adjustment: {mapper.reconstruction_.summary()}")
+
     fig = viz_3d.init_figure()
+
     # viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(0,255,0)')
     viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(255,255,255)')
     fig.show()

@@ -2,10 +2,15 @@ import pycolmap
 import pyceres
 import numpy as np
 from src.enums import ImageSelectionMethod
+from Utility.logger_setup import get_logger
 from src.optimization import BundleAdjuster
 
+logger = get_logger(__name__)
 
+
+# register next image, find next images
 class IncrementalMapperOptions:
+
     # Minimum number of inliers for initial image pair.
     init_min_num_inliers = 100
 
@@ -131,6 +136,8 @@ class IncrementalMapper:
     # an existing reconstruction.
     existing_image_ids_ = None
 
+    #TODO: Add keyframe store
+
     # This function does not seem to get exposed from pycolmap
     def DegToRad(self, deg):
         return deg * np.pi / 180
@@ -143,7 +150,7 @@ class IncrementalMapper:
         init_max_reg_trials = options.init_max_reg_trials
 
         # Collect information of all not yet registered images with
-        # correspondences. We considre onyl the options.
+        # correspondences. We consider only the options.
         image_infos = []
 
         max_len = min(self.reconstruction_.num_images(), options.init_max_num_images)
@@ -187,6 +194,7 @@ class IncrementalMapper:
     def FindSecondInitialImage(self, options, image_id1):
         image1 = self.reconstruction_.images[image_id1]
         num_correspondences = {}
+
         for point2D_idx in range(image1.num_points2D()):
             for corr in self.graph_.find_correspondences(image_id1, point2D_idx):
                 if self.num_registrations_.get(corr.image_id, 0) == 0:
@@ -282,19 +290,12 @@ class IncrementalMapper:
         if not answer["success"]:
             return False
 
-        # Some optical flow/motion constraint to make sure the baseline is big enough
-        flow_constr = sum(abs(np.array(points1) - np.array(points2))[answer["inliers"]])
-        flow_constr = flow_constr / sum(answer["inliers"])
-        # Just using the one camera assuming we have only one
-        fx = camera1.focal_length_x
-        fy = camera1.focal_length_y
-        f = np.array([fx, fy])
-        flow_constr = sum(flow_constr / f)
+        flow_constr = self.OpticalFlowCalculator(points1, points2, answer["inliers"], camera1.focal_length_x, camera1.focal_length_y)
 
         # if abs(image_id1 - image_id2) > 30 and flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
-        if flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
+        if flow_constr > 0.055 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
                 answer["tvec"][2]) < options.init_max_forward_motion:
-            # TODO: Note the Colmap code checks also the triagulation angle but this seems not really possible with the pycolmap bindings
+            # TODO: Note the Colmap code checks also the triangulation angle but this seems not really possible with the pycolmap bindings
             # see: https://github.com/colmap/colmap/blob/dev/src/estimators/two_view_geometry.cc/#L216-L217
             self.prev_init_image_pair_id_ = image_pair_id
             self.prev_init_two_view_geometry_ = answer
@@ -315,7 +316,7 @@ class IncrementalMapper:
     # (in which case `RegisterInitialImagePair` must be called).
     def BeginReconstruction(self, reconstruction, graph, images_manager):
         if self.reconstruction_ != None:
-            print("Reconstruction objet in Incremental Mapper should be empty!")
+            logger.warning("Reconstruction object in Incremental Mapper should be empty!")
         self.reconstruction_ = reconstruction
         self.graph_ = graph
         self.images_manager_ = images_manager
@@ -343,7 +344,7 @@ class IncrementalMapper:
     # be updated accordingly. Bool
     def EndReconstruction(self, discard):
         if self.reconstruction_ is None:
-            print("Calling EndReconstuction on an empty reconstruction!")
+            logger.warning("Calling EndReconstruction on an empty reconstruction!")
         else:
             if discard:
                 for img_ids in self.reconstruction_.reg_image_ids():
@@ -394,6 +395,15 @@ class IncrementalMapper:
 
         return False, -1, -1
 
+    def OpticalFlowCalculator(self, point_list1, point_list2, inlier_mask, fx, fy):
+        # Optical flow to make sure the baseline is big enough
+        flow_constr = sum(abs(np.array(point_list1) - np.array(point_list2))[inlier_mask])
+        flow_constr = flow_constr / sum(inlier_mask)
+        # Just using the one camera assuming we have only one
+        f = np.array([fx, fy])
+        flow_constr = sum(flow_constr / f)
+        return flow_constr
+
     # Find best next image to register in the incremental reconstruction. The
     # images should be passed to `RegisterNextImage`. This function automatically
     # ignores images that failed to registered for `max_reg_trials`.
@@ -436,13 +446,14 @@ class IncrementalMapper:
 
         return image_ids
 
+
     # Attempt to seed the reconstruction from an image pair.
     def RegisterInitialImagePair(self, options, image_id1, image_id2):
         if self.reconstruction_ is None:
-            print("Incremental Mapper (RegisterInitialImagePair): reconstruction is NONE!")
+            logger.warning("Incremental Mapper (RegisterInitialImagePair): reconstruction is NONE!")
 
         if self.reconstruction_.num_reg_images() != 0:
-            print("Incremental Mapper (RegisterInitialImagePair): reconstruction has already images registered!")
+            logger.warning("Incremental Mapper (RegisterInitialImagePair): reconstruction has already images registered!")
 
         options.check()
 
@@ -611,7 +622,7 @@ class IncrementalMapper:
             ba_options = pyceres.SolverOptions()
 
         if reg_image_ids < 2:
-            print("Not enough registered images for global BA")
+            logger.warning("Not enough registered images for global BA")
             return False
 
         ba = BundleAdjuster(self.reconstruction_, options=ba_options)
