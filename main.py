@@ -7,7 +7,7 @@ from Utility.logger_setup import get_logger
 
 logger = get_logger(__name__)
 
-images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
+# images = Path('data/rgbd_dataset_freiburg1_xyz/rgb/')
 images = Path('data/kitti/frames/')
 outputs = Path('out/test1/')
 exports = outputs / 'reconstruction.ply'
@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
     find_next_keyframe = mapper.FindNextKeyframe(inc_mapper_options)
 
-    logger.info(f"Summary of the reconstruction at the end of the mapper: {mapper.reconstruction_.summary()}")
+    logger.info(f"{mapper.reconstruction_.summary()}")
 
     fig = viz_3d.init_figure()
     viz_3d.plot_reconstruction(fig, mapper.reconstruction_, min_track_length=0, color='rgb(255,0,0)')
