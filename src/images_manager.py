@@ -10,7 +10,7 @@ from tqdm import tqdm
 class ImagesManager:
     """
     This class stores the used image list and their correspondent features and matches
-    Should be seen as a substitiution for the database
+    Should be seen as a substitution for the database
     """
 
     # The path to the images on the disk
@@ -23,7 +23,7 @@ class ImagesManager:
     kp_map = {}
 
     # Maps an image_id to the description of the corresponding keypoints in the image
-    detector_map = {}
+    descriptor_map = {}
 
     # Keeps track which images have been
     managed_images = []
@@ -31,7 +31,7 @@ class ImagesManager:
     # List of all image ids
     image_ids = []
 
-    # The recontruction object
+    # The reconstruction object
     reconstruction = None
 
     # The correspondence graph
@@ -53,7 +53,7 @@ class ImagesManager:
         self.used_matcher = used_matcher
         self.extractor, self.matcher = features.init(used_extractor, used_matcher)
         self.kp_map = {}
-        self.detector_map = {}
+        self.descriptor_map = {}
         self.image_ids = []
         self.graph = graph
         self.reconstruction = reconstruction
@@ -74,16 +74,18 @@ class ImagesManager:
 
     def register_image(self, image_id):
         """
+        Extract keypoints+descriptors, add image to reconstruction and graph,
+        and add correspondences
         :param image_id:
         :return:
         """
-        self.kp_map[image_id], self.detector_map[image_id] = features.detector(self.images_path,
+        self.kp_map[image_id], self.descriptor_map[image_id] = features.detector(self.images_path,
                                                                                self.frame_names[image_id],
                                                                                self.extractor,
                                                                                self.used_extractor)
         image = pycolmap.Image(id=image_id, name=str(self.frame_names[image_id]),
                                 camera_id=self.camera.camera_id)
-        image.registered = False
+        image.registered = False #TODO: why is this False?
         points2D = [keypoint.pt for keypoint in self.kp_map[image_id]]
         image.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
         self.reconstruction.add_image(image)
@@ -97,7 +99,7 @@ class ImagesManager:
         self.reconstruction.images[image_id].registered = False
 
     def match_images(self, image_id1, image_id2):
-        matches = features.matcher(self.detector_map[image_id1], self.detector_map[image_id2], self.matcher,
+        matches = features.matcher(self.descriptor_map[image_id1], self.descriptor_map[image_id2], self.matcher,
                                    self.used_matcher)
         # Since the first parameter for matcher is actually the query
         matches = [(match.queryIdx, match.trainIdx) for match in matches]
