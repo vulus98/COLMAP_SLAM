@@ -1,12 +1,13 @@
 import pycolmap
+import pyceres
 import numpy as np
 from src.enums import ImageSelectionMethod
 from Utility.logger_setup import get_logger
+from src.optimization import BundleAdjuster
 
 logger = get_logger(__name__)
 
 
-# TODO: add keyframe list
 # register next image, find next images
 class IncrementalMapperOptions:
 
@@ -82,7 +83,7 @@ class IncrementalMapperOptions:
 class IncrementalMapper:
     # =========================== "private" ===============================
 
-        # Class that holds data of the reconstruction.
+    # Class that holds data of the reconstruction.
     reconstruction_ = None
 
     # Class that holds the correspondece graph
@@ -153,6 +154,7 @@ class IncrementalMapper:
         image_infos = []
 
         max_len = min(self.reconstruction_.num_images(), options.init_max_num_images)
+        # max_len = min(self.reconstruction_.num_images(), int(options.init_max_num_images * 2))
         for image in [self.reconstruction_.images[img_id] for img_id in self.images_manager_.image_ids[:max_len]]:
             # Only images with correspondences can be registered.
             if image.num_correspondences == 0:
@@ -177,7 +179,8 @@ class IncrementalMapper:
 
         # Sort images such that images with a prior focal length and more
         # correspondences are preferred, i.e. they appear in the front of the list.
-        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]), reverse=True)
+        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]),
+                             reverse=True)
 
         # Extract image identifiers in sorted order.
         image_ids = [image_info["image_id"] for image_info in image_infos]
@@ -212,13 +215,13 @@ class IncrementalMapper:
 
         # Sort images such that images with a prior focal length and more
         # correspondences are preferred, i.e. they appear in the front of the list.
-        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]), reverse=True)
+        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]),
+                             reverse=True)
 
         # Extract image identifiers in sorted order.
         image_ids = [image_info["image_id"] for image_info in image_infos]
 
         return image_ids
-
 
     # Find local bundle for given image in the reconstruction. The local bundle
     # is defined as the images that are most connected, i.e. maximum number of
@@ -255,6 +258,8 @@ class IncrementalMapper:
             elif num_regs_for_image > 0:
                 self.num_shared_reg_images_ -= 1
 
+        self.images_manager_.deregister_image(image_id)
+
     def EstimateInitialTwoViewGeometry(self, options, image_id1, image_id2):
         image_pair_id = self.images_manager_.ImagePairToPairId(image_id1, image_id2)
 
@@ -285,7 +290,9 @@ class IncrementalMapper:
 
         flow_constr = self.OpticalFlowCalculator(points1, points2, answer["inliers"], camera1.focal_length_x, camera1.focal_length_y)
 
-        if flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(answer["tvec"][2]) < options.init_max_forward_motion:
+        # if abs(image_id1 - image_id2) > 30 and flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
+        if flow_constr > 0.055 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
+                answer["tvec"][2]) < options.init_max_forward_motion:
             # TODO: Note the Colmap code checks also the triangulation angle but this seems not really possible with the pycolmap bindings
             # see: https://github.com/colmap/colmap/blob/dev/src/estimators/two_view_geometry.cc/#L216-L217
             self.prev_init_image_pair_id_ = image_pair_id
@@ -293,6 +300,7 @@ class IncrementalMapper:
             return True
 
         return False
+
     # ========================= "public" ======================================
 
     # Create incremental mapper.
@@ -349,13 +357,13 @@ class IncrementalMapper:
         image_ids1 = []
         if image_id1 != self.kInvalidImageId and image_id2 == self.kInvalidImageId:
             # Only first image provided
-            if self.images_manager_.exists_image(image_id1):
+            if not self.images_manager_.exists_image(image_id1):
                 return False, -1, -1
 
             image_ids1.append(image_id1)
         elif image_id1 == self.kInvalidImageId and image_id2 != self.kInvalidImageId:
             # Only second image provided
-            if self.images_manager_.exists_image(image_id2):
+            if not self.images_manager_.exists_image(image_id2):
                 return False, -1, -1
 
             image_ids1.push_back(image_id2)
@@ -384,8 +392,8 @@ class IncrementalMapper:
 
     def OpticalFlowCalculator(self, point_list1, point_list2, inlier_mask, fx, fy):
         # Optical flow to make sure the baseline is big enough
-        flow_constr = np.median(abs(np.array(point_list1) - np.array(point_list2))[inlier_mask])
-        # flow_constr = flow_constr / sum(inlier_mask)
+        flow_constr = sum(abs(np.array(point_list1) - np.array(point_list2))[inlier_mask])
+        flow_constr = flow_constr / sum(inlier_mask)
         # Just using the one camera assuming we have only one
         f = np.array([fx, fy])
         flow_constr = sum(flow_constr / f)
@@ -394,32 +402,9 @@ class IncrementalMapper:
     # Find best next image to register in the incremental reconstruction. The
     # images should be passed to `RegisterNextImage`. This function automatically
     # ignores images that failed to registered for `max_reg_trials`.
-    def FindNextKeyframe(self, options):
+    def FindNextImages(self, options):
         logger.debug(options)
         a = 0
-
-
-
-        # condition1 = True
-        # condition2 = currFrameIdx - last_keyframeidx > 20
-        # condition3 = True
-        # condition4 = self.reconstruction_.images[currFrameIdx].num_points3D() < 0.9 * \
-        #         reconstruction.images[last_keyframeidx].num_points3D()
-        # condition5 = True
-        #
-        # all_conditions_satisfied = np.all([condition1, condition2, condition3, condition4, condition5])
-        #
-        #
-        # if all_conditions_satisfied:
-        #
-        #     self.triangulator_.complete_image(options, im.image_id)
-        #     last_keyframeidx = currFrameIdx
-        #     keyframe_idxes.append(currFrameIdx)
-        #     # For evaluation of dataset purposes
-        #     f.write(img_to_name(frameNames[currFrameIdx], reconstruction.images[im.image_id]))
-        # else:
-        #     reconstruction.deregister_image(im.image_id)
-
 
 
     # Attempt to seed the reconstruction from an image pair.
@@ -502,7 +487,6 @@ class IncrementalMapper:
 
         return True
 
-
     # Attempt to register image to the existing model. This requires that
     # a previous call to `RegisterInitialImagePair` was successful.
     def RegisterNextImage(self, options, image_id):
@@ -542,18 +526,58 @@ class IncrementalMapper:
     # ba_options: Bundle adjustment options
     # tri_options: Triangulator options
     def AdjustLocalBundle(self, options, ba_options, tri_options, image_id, point3D_ids):
+        # The number of images to optimize in local bundle adjustment.
+        ba_local_num_images = 6
+
+        # Ceres solver function tolerance for local bundle adjustment
+        ba_local_function_tolerance = 0.0
+
+        # The maximum number of local bundle adjustment iterations.
+        ba_local_max_num_iterations = 25
+
         a = 0
 
     # Global bundle adjustment using Ceres Solver or PBA.
-    def AdjustGlobalBundle(self, options, ba_options):
-        a = 0
+    def AdjustGlobalBundle(self, options, ba_options=None):
+        reg_image_ids = self.reconstruction_.num_reg_images()
+
+        if ba_options is None:
+            ba_options = pyceres.SolverOptions()
+
+        if reg_image_ids < 2:
+            logger.warning("Not enough registered images for global BA")
+            return False
+
+        ba = BundleAdjuster(self.reconstruction_, options=ba_options)
+        # ba.constant_pose = [reg_image_ids[0]]
+        # ba.constant_tvec = [reg_image_ids[1]]
+        # ba.motion_only_BA([self.reconstruction_.images[id] for id in self.reconstruction_.reg_image_ids()])
+        if not ba.global_BA():
+            return False
+
+        # See: https://github.com/colmap/colmap/blob/dev/src/base/reconstruction.h/#L181
+        # self.reconstruction_.normalize(10.0, 0.1, 0.9, True)
+        return True
 
     # Filter images and point observations.
+    # Mainly based on the focal length
     def FilterImages(self, options):
-        a = 0
+        kMinNumImages = 20
+        if self.reconstruction_.num_reg_images() < kMinNumImages:
+            return []
+
+        image_ids = self.reconstruction_.filter_images(options.min_focal_length_ratio, options.max_focal_length_ratio,
+                                                       options.max_extra_param)
+
+        filtered_images = []
+        for img_id in image_ids:
+            self.DeRegisterImageEvent(img_id)
+            filtered_images.append(img_id)
+
+        return len(image_ids)
 
     def FilterPoints(self, options):
-        a = 0
+        return self.reconstruction_.filter_all_points3D(options.filter_max_reproj_error, options.filter_min_tri_angle)
 
     def GetReconstruction(self):
         a = 0
