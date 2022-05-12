@@ -231,6 +231,7 @@ class IncrementalMapper:
 
         num_regs_for_image = self.num_registrations_.get(image_id, 0)
         num_regs_for_image += 1
+        self.num_registrations_[image_id]+=1
         if num_regs_for_image == 1:
             self.num_total_reg_images_ += 1
         elif num_regs_for_image > 1:
@@ -245,6 +246,7 @@ class IncrementalMapper:
 
             num_regs_for_image = self.num_registrations_.get(image_id, 0)
             num_regs_for_image -= 1
+            self.num_registrations_[image_id]-=1
             if num_regs_for_image == 0:
                 self.num_total_reg_images_ -= 1
             elif num_regs_for_image > 0:
@@ -322,6 +324,9 @@ class IncrementalMapper:
         self.num_shared_reg_images_ = 0
         self.num_reg_images_per_camera_ = {}
 
+        for img in reconstruction.images:
+            self.num_registrations_[img]=0
+        
         for img_id in reconstruction.reg_image_ids():
             self.RegisterImageEvent(img_id)
 
@@ -393,7 +398,43 @@ class IncrementalMapper:
     # images should be passed to `RegisterNextImage`. This function automatically
     # ignores images that failed to registered for `max_reg_trials`.
     def FindNextImages(self, options):
-        a = 0
+        num_correspondences={}
+        num_last_imgs=min(3,self.reconstruction_.num_reg_images())
+        last_reg_images=self.reconstruction_.reg_image_ids()[-num_last_imgs:]
+        if(last_reg_images[-1]==self.images_manager_.image_ids[-1]):
+            return []
+        valid_img_ids=self.images_manager_.image_ids[last_reg_images[-1]:min(last_reg_images[-1]+3,self.images_manager_.image_ids[-1]+1)]
+        for image_id in last_reg_images:
+            image = self.reconstruction_.images[image_id]
+            for point2D_idx in range(image.num_points2D()):
+                point3D_id=image.points2D[point2D_idx].point3D_id
+                if(point3D_id<18446744073709551615):
+                    for corr in self.graph_.find_correspondences(image_id, point2D_idx):
+                        if corr.image_id in valid_img_ids and self.num_registrations_.get(corr.image_id, 0) == 0:
+                            num_correspondences[corr.image_id] = num_correspondences.get(corr.image_id, 0) + 1
+
+        init_min_num_inliers = options.init_min_num_inliers
+        image_infos = []
+        for k, v in num_correspondences.items():
+            if v >= init_min_num_inliers:
+                image = self.reconstruction_.images[k]
+                camera = self.reconstruction_.cameras[image.camera_id]
+                image_info = {
+                    "image_id": k,
+                    "prior_focal_length": camera.has_prior_focal_length,
+                    "num_correspondences": v
+                }
+                image_infos.append(image_info)
+
+        # Sort images such that images with a prior focal length and more
+        # correspondences are preferred, i.e. they appear in the front of the list.
+        image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]),
+                             reverse=True)
+
+        # Extract image identifiers in sorted order.
+        image_ids = [image_info["image_id"] for image_info in image_infos]
+
+        return image_ids
 
     # Attempt to seed the reconstruction from an image pair.
     def RegisterInitialImagePair(self, options, image_id1, image_id2):
@@ -443,7 +484,8 @@ class IncrementalMapper:
         # ==========================
         # Update Reconstruction
         # ==========================
-
+        if(image_id1>image_id2):
+            image_id1,image_id2=image_id2,image_id1
         self.reconstruction_.register_image(image_id1)
         self.reconstruction_.register_image(image_id2)
         self.RegisterImageEvent(image_id1)
@@ -478,7 +520,43 @@ class IncrementalMapper:
     # Attempt to register image to the existing model. This requires that
     # a previous call to `RegisterInitialImagePair` was successful.
     def RegisterNextImage(self, options, image_id):
-        a = 0
+        query_img_id=image_id
+        query_img=self.reconstruction_.images[query_img_id]
+        points_2D=[]
+        points_3D=[]
+        num_last_imgs=min(3,self.reconstruction_.num_reg_images())
+        last_reg_images=self.reconstruction_.reg_image_ids()[-num_last_imgs:]
+        for image_id in last_reg_images:
+            image = self.reconstruction_.images[image_id]
+            for point2D_idx in range(image.num_points2D()):
+                point3D_id=image.points2D[point2D_idx].point3D_id
+                if(point3D_id<18446744073709551615):
+                    for corr in self.graph_.find_correspondences(image_id, point2D_idx):
+                        if corr.image_id==query_img_id and self.num_registrations_.get(query_img_id, 0) == 0:
+                            points_3D.append(self.reconstruction_.points3D[point3D_id].xyz)
+                            points_2D.append(query_img.points2D[corr.point2D_idx].xy)
+        
+
+        answer = pycolmap.absolute_pose_estimation(points_2D,
+                                            points_3D,
+                                            self.reconstruction_.cameras[0], max_error_px=2.0)  # 12.0
+        if(answer['success']):
+            query_img.tvec = answer['tvec']
+            query_img.qvec = answer['qvec']
+            self.reconstruction_.register_image(query_img_id)
+            self.RegisterImageEvent(query_img_id)
+
+            min_tri_angle_rad = self.DegToRad(options.init_min_tri_angle)
+            triang_options = pycolmap.IncrementalTriangulatorOptions()
+            triang_options.ignore_two_view_track = False
+            self.triangulator_.triangulate_image(triang_options, query_img_id)
+            # Filter3D points with large reprojection error, negative depth, or
+            # insufficient triangulation angle
+            self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
+        
+        return answer['success']
+
+        
 
     # Triangulate observations of image.
     def TriangulateImage(self, tri_options, image_id):
