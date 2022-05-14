@@ -45,6 +45,9 @@ class ImagesManager:
     # [current_img - init_max_num_images : current_img + init_max_num_images]
     init_max_num_images = 60
 
+    # Stores which image pairs have already been matched and put in the correspondence graph
+    corresponds = {}
+
     def __init__(self, images_path, frame_names, reconstruction, graph, camera, init_max_num_images=60, used_extractor=enums.Extractors.ORB,
                  used_matcher=enums.Matchers.OrbHamming):
         self.images_path = images_path
@@ -59,6 +62,7 @@ class ImagesManager:
         self.reconstruction = reconstruction
         self.camera = camera
         self.init_max_num_images = init_max_num_images
+        self.corresponds = {}
 
         # Register all images
         for image_id in tqdm(range(len(frame_names)), "Matching the corresponding images"):
@@ -85,6 +89,7 @@ class ImagesManager:
                                                                                self.used_extractor)
         image = pycolmap.Image(id=image_id, name=str(self.frame_names[image_id]),
                                 camera_id=self.camera.camera_id)
+        # We only register an image if it is contained in the map
         image.registered = False #TODO: why is this False?
         points2D = [keypoint.pt for keypoint in self.kp_map[image_id]]
         image.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
@@ -92,8 +97,9 @@ class ImagesManager:
         self.graph.add_image(image_id, len(image.points2D))
         self.image_ids.append(image_id)
 
-        for image_id2 in self.image_ids[max(0, image_id - self.init_max_num_images):image_id]:
-            self.add_to_correspondence_graph(image_id, image_id2)
+        if image_id < self.init_max_num_images:
+            for image_id2 in self.image_ids[max(0, image_id - self.init_max_num_images):image_id]:
+                self.add_to_correspondence_graph(image_id, image_id2)
 
     def deregister_image(self, image_id):
         self.reconstruction.images[image_id].registered = False
@@ -106,9 +112,11 @@ class ImagesManager:
         return matches
 
     def add_to_correspondence_graph(self, image_id1, image_id2):
-        matches = self.match_images(image_id1, image_id2)
-        matches = np.array(matches, dtype=np.uint32)
-        self.graph.add_correspondences(image_id1, image_id2, matches)
+        if image_id1 != image_id2 and self.corresponds.get(self.ImagePairToPairId(image_id1, image_id2), 0) == 0:
+            matches = self.match_images(image_id1, image_id2)
+            matches = np.array(matches, dtype=np.uint32)
+            self.graph.add_correspondences(image_id1, image_id2, matches)
+            self.corresponds[self.ImagePairToPairId(image_id1, image_id2)] = 1
 
     # Check if image exists on disk
     def exists_image(self, image_id):

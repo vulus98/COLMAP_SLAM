@@ -10,7 +10,6 @@ logger = get_logger(__name__)
 
 # register next image, find next images
 class IncrementalMapperOptions:
-
     # Minimum number of inliers for initial image pair.
     init_min_num_inliers = 100
 
@@ -136,7 +135,7 @@ class IncrementalMapper:
     # an existing reconstruction.
     existing_image_ids_ = None
 
-    #TODO: Add keyframe store
+    # TODO: Add keyframe store
 
     # This function does not seem to get exposed from pycolmap
     def DegToRad(self, deg):
@@ -227,9 +226,34 @@ class IncrementalMapper:
     # is defined as the images that are most connected, i.e. maximum number of
     # shared 3D points, to the given image.
     def FindLocalBundle(self, options, image_id):
-        a = 0
+        image = self.reconstruction_.images[image_id]
+        if not image.registered:
+            print("Local bundle with unregistered image!")
+            return False
 
-    # Register / De-register image in current reconstruction and update
+        shared_observations = {}
+        point3D_ids = []
+        for point2D in image.get_valid_points2D():
+            point3D_ids.append(point2D.point3D_id)
+            point3D = self.reconstruction_.points3D[point2D.point3D_id]
+            for track_el in point3D.track.elements:
+                if track_el.image_id != image_id:
+                    shared_observations[track_el.image_id] = shared_observations.get(track_el.image_id, 0) + 1
+
+        shared_observations = sorted(shared_observations, reverse=True)
+        overlapping_images = shared_observations
+        # The local bundle is composed of the given image and its most connected
+        # neighbor images, hence the subtraction of 1.
+        num_images = options.local_ba_num_images - 1
+        num_eff_images = min(num_images, len(overlapping_images))
+
+        # TODO: skipped a huge part, dunno if relevant for us:
+        # https://github.com/colmap/colmap/blob/dev/src/sfm/incremental_mapper.cc/#L991-L111
+
+        return overlapping_images[:num_eff_images]
+
+        # Register / De-register image in current reconstruction and update
+
     # the number of shared images between all reconstructions.
     def RegisterImageEvent(self, image_id):
         image = self.reconstruction_.images[image_id]
@@ -239,7 +263,7 @@ class IncrementalMapper:
 
         num_regs_for_image = self.num_registrations_.get(image_id, 0)
         num_regs_for_image += 1
-        self.num_registrations_[image_id]+=1
+        self.num_registrations_[image_id] += 1
         if num_regs_for_image == 1:
             self.num_total_reg_images_ += 1
         elif num_regs_for_image > 1:
@@ -254,7 +278,7 @@ class IncrementalMapper:
 
             num_regs_for_image = self.num_registrations_.get(image_id, 0)
             num_regs_for_image -= 1
-            self.num_registrations_[image_id]-=1
+            self.num_registrations_[image_id] -= 1
             if num_regs_for_image == 0:
                 self.num_total_reg_images_ -= 1
             elif num_regs_for_image > 0:
@@ -290,7 +314,8 @@ class IncrementalMapper:
         if not answer["success"]:
             return False
 
-        flow_constr = self.OpticalFlowCalculator(points1, points2, answer["inliers"], camera1.focal_length_x, camera1.focal_length_y)
+        flow_constr = self.OpticalFlowCalculator(points1, points2, answer["inliers"], camera1.focal_length_x,
+                                                 camera1.focal_length_y)
 
         # if abs(image_id1 - image_id2) > 30 and flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
         if flow_constr > 0.055 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
@@ -326,8 +351,8 @@ class IncrementalMapper:
         self.num_reg_images_per_camera_ = {}
 
         for img in reconstruction.images:
-            self.num_registrations_[img]=0
-        
+            self.num_registrations_[img] = 0
+
         for img_id in reconstruction.reg_image_ids():
             self.RegisterImageEvent(img_id)
 
@@ -408,17 +433,23 @@ class IncrementalMapper:
     # images should be passed to `RegisterNextImage`. This function automatically
     # ignores images that failed to registered for `max_reg_trials`.
     def FindNextImages(self, options):
-        num_correspondences={}
-        num_last_imgs=min(3,self.reconstruction_.num_reg_images())
-        last_reg_images=self.reconstruction_.reg_image_ids()[-num_last_imgs:]
-        if(last_reg_images[-1]==self.images_manager_.image_ids[-1]):
+        num_correspondences = {}
+        num_last_imgs = min(3, self.reconstruction_.num_reg_images())
+        last_reg_images = self.reconstruction_.reg_image_ids()[-num_last_imgs:]
+        if (last_reg_images[-1] == self.images_manager_.image_ids[-1]):
             return []
-        valid_img_ids=self.images_manager_.image_ids[last_reg_images[-1]:min(last_reg_images[-1]+3,self.images_manager_.image_ids[-1]+1)]
+        valid_img_ids = self.images_manager_.image_ids[
+                        last_reg_images[-1]:min(last_reg_images[-1] + 3, self.images_manager_.image_ids[-1] + 1)]
         for image_id in last_reg_images:
+
+            # Matcches the current image (image_id) with all images in valid_img_ids to fill the correspondence graph
+            for other_img_id in valid_img_ids:
+                self.images_manager_.add_to_correspondence_graph(image_id, other_img_id)
+
             image = self.reconstruction_.images[image_id]
             for point2D_idx in range(image.num_points2D()):
-                point3D_id=image.points2D[point2D_idx].point3D_id
-                if(point3D_id<18446744073709551615):
+                point3D_id = image.points2D[point2D_idx].point3D_id
+                if (point3D_id < 18446744073709551615):
                     for corr in self.graph_.find_correspondences(image_id, point2D_idx):
                         if corr.image_id in valid_img_ids and self.num_registrations_.get(corr.image_id, 0) == 0:
                             num_correspondences[corr.image_id] = num_correspondences.get(corr.image_id, 0) + 1
@@ -446,14 +477,14 @@ class IncrementalMapper:
 
         return image_ids
 
-
     # Attempt to seed the reconstruction from an image pair.
     def RegisterInitialImagePair(self, options, image_id1, image_id2):
         if self.reconstruction_ is None:
             logger.warning("Incremental Mapper (RegisterInitialImagePair): reconstruction is NONE!")
 
         if self.reconstruction_.num_reg_images() != 0:
-            logger.warning("Incremental Mapper (RegisterInitialImagePair): reconstruction has already images registered!")
+            logger.warning(
+                "Incremental Mapper (RegisterInitialImagePair): reconstruction has already images registered!")
 
         options.check()
 
@@ -495,8 +526,8 @@ class IncrementalMapper:
         # ==========================
         # Update Reconstruction
         # ==========================
-        if(image_id1>image_id2):
-            image_id1,image_id2=image_id2,image_id1
+        if (image_id1 > image_id2):
+            image_id1, image_id2 = image_id2, image_id1
         self.reconstruction_.register_image(image_id1)
         self.reconstruction_.register_image(image_id2)
         self.RegisterImageEvent(image_id1)
@@ -531,27 +562,26 @@ class IncrementalMapper:
     # Attempt to register image to the existing model. This requires that
     # a previous call to `RegisterInitialImagePair` was successful.
     def RegisterNextImage(self, options, image_id):
-        query_img_id=image_id
-        query_img=self.reconstruction_.images[query_img_id]
-        points_2D=[]
-        points_3D=[]
-        num_last_imgs=min(3,self.reconstruction_.num_reg_images())
-        last_reg_images=self.reconstruction_.reg_image_ids()[-num_last_imgs:]
+        query_img_id = image_id
+        query_img = self.reconstruction_.images[query_img_id]
+        points_2D = []
+        points_3D = []
+        num_last_imgs = min(3, self.reconstruction_.num_reg_images())
+        last_reg_images = self.reconstruction_.reg_image_ids()[-num_last_imgs:]
         for image_id in last_reg_images:
             image = self.reconstruction_.images[image_id]
             for point2D_idx in range(image.num_points2D()):
-                point3D_id=image.points2D[point2D_idx].point3D_id
-                if(point3D_id<18446744073709551615):
+                point3D_id = image.points2D[point2D_idx].point3D_id
+                if (point3D_id < 18446744073709551615):
                     for corr in self.graph_.find_correspondences(image_id, point2D_idx):
-                        if corr.image_id==query_img_id and self.num_registrations_.get(query_img_id, 0) == 0:
+                        if corr.image_id == query_img_id and self.num_registrations_.get(query_img_id, 0) == 0:
                             points_3D.append(self.reconstruction_.points3D[point3D_id].xyz)
                             points_2D.append(query_img.points2D[corr.point2D_idx].xy)
-        
 
         answer = pycolmap.absolute_pose_estimation(points_2D,
-                                            points_3D,
-                                            self.reconstruction_.cameras[0], max_error_px=2.0)  # 12.0
-        if(answer['success']):
+                                                   points_3D,
+                                                   self.reconstruction_.cameras[0], max_error_px=2.0)  # 12.0
+        if (answer['success']):
             query_img.tvec = answer['tvec']
             query_img.qvec = answer['qvec']
             self.reconstruction_.register_image(query_img_id)
@@ -564,10 +594,8 @@ class IncrementalMapper:
             # Filter3D points with large reprojection error, negative depth, or
             # insufficient triangulation angle
             self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
-        
-        return answer['success']
 
-        
+        return answer['success']
 
     # Triangulate observations of image.
     def TriangulateImage(self, tri_options, image_id):
@@ -606,15 +634,32 @@ class IncrementalMapper:
         # The number of images to optimize in local bundle adjustment.
         ba_local_num_images = 6
 
-        # Ceres solver function tolerance for local bundle adjustment
-        ba_local_function_tolerance = 0.0
+        if tri_options is None:
+            tri_options = pycolmap.IncrementalTriangulatorOptions()
 
-        # The maximum number of local bundle adjustment iterations.
-        ba_local_max_num_iterations = 25
+        local_bundle = self.FindLocalBundle(options, image_id)
+        local_bundle = local_bundle[:ba_local_num_images]
+        local_bundle.append(image_id)
 
-        a = 0
+        variable_points = []
+        if len(local_bundle) > 0:
+            ba = BundleAdjuster(self.reconstruction_)
+            success, variable_points = ba.local_BA(local_bundle)
+            num_merged_observations = self.triangulator_.merge_all_tracks(tri_options)
+            logger.info("After Local BA ===============\n Merged " + str(num_merged_observations) + " tracks")
+            num_completed_observations = self.triangulator_.complete_all_tracks(tri_options)
+            num_completed_observations += self.triangulator_.complete_image(tri_options, image_id)
+            logger.info("Completed " + str(num_completed_observations) + " observations")
 
-    # Global bundle adjustment using Ceres Solver or PBA.
+        num_filtered_observations = self.reconstruction_.filter_points3D_in_images(options.filter_max_reproj_error,
+                                                                                   options.filter_min_tri_angle,
+                                                                                   set(local_bundle))
+        num_filtered_observations += self.reconstruction_.filter_points3D(options.filter_max_reproj_error,
+                                                                          options.filter_min_tri_angle, set(variable_points))
+        logger.info("Filtered " + str(num_filtered_observations) + " observations")
+
+        # Global bundle adjustment using Ceres Solver or PBA.
+
     def AdjustGlobalBundle(self, options, ba_options=None):
         reg_image_ids = self.reconstruction_.num_reg_images()
 
@@ -633,7 +678,7 @@ class IncrementalMapper:
             return False
 
         # See: https://github.com/colmap/colmap/blob/dev/src/base/reconstruction.h/#L181
-        # self.reconstruction_.normalize(10.0, 0.1, 0.9, True)
+        self.reconstruction_.normalize(10.0, 0.1, 0.9, True)
         return True
 
     # Filter images and point observations.
@@ -670,7 +715,9 @@ class IncrementalMapper:
 
     # Get changed 3D points, since the last call to `ClearModifiedPoints3D`.
     def GetModifiedPoints3D(self):
-        a = 0
+        # TODO: not implementable bc missing bindings in pycolmap
+        # return self.triangulator_.get_modified_points3D()
+        return None
 
     # Clear the collection of changed 3D points.
     def ClearModifiedPoints3D(self):

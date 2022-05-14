@@ -31,6 +31,14 @@ class BundleAdjuster:
         # Loss function types: Trivial(non - robust) and Cauchy(robust) loss.
         loss = pyceres.TrivialLoss()
 
+        #Options from https://github.com/colmap/colmap/blob/dev/src/controllers/incremental_mapper.cc/#L219-L226
+        self.options.gradient_tolerance = 10.0
+        self.options.parameter_tolerance = 0.0
+        self.options.max_linear_solver_iterations = 100
+
+        # The maximum number of local bundle adjustment iterations.
+        self.options.max_num_iterations = 50
+
         self.rec.filter_observations_with_negative_depth()
 
         if not self.img_list:
@@ -42,7 +50,7 @@ class BundleAdjuster:
             # Do not optimize pose of first image
             self.constant_pose = [img_list_id[0]]
         if not self.constant_tvec:
-            # Do not optimize x-trnslation of second image
+            # Do not optimize x-translation of second image
             self.constant_tvec = [img_list_id[1]]
 
         varible_points = []
@@ -61,31 +69,53 @@ class BundleAdjuster:
 
         return True
 
-    # Local BA: all points associated to images in the img_list are optimized, the poses stay fixed
-    # img_list stores the id s of images that should get optimized
-    def local_BA(self, img_list):
+    # Only a part of the images and map points get optimized
+    # That is specified by img_list
+    def local_BA(self, img_list_id):
         self.prob = pyceres.Problem()
 
         # Loss function types: Trivial(non - robust) and Cauchy(robust) loss.
-        loss = pyceres.TrivialLoss()
+        loss = pyceres.SoftLOneLoss(1.0)
 
+        #Options from https://github.com/colmap/colmap/blob/dev/src/controllers/incremental_mapper.cc/#L219-L226
+        self.options.gradient_tolerance = 10.0
+        self.options.parameter_tolerance = 0.0
+        self.options.max_linear_solver_iterations = 100
+
+        # The maximum number of local bundle adjustment iterations.
+        self.options.max_num_iterations = 25
+
+        #loss = pyceres.TrivialLoss()
         self.rec.filter_observations_with_negative_depth()
 
-        self.img_list = [element for element in self.rec.images.values() if element.image_id in img_list and element.registered]
-        self.constant_pose = img_list
-        varible_points = []
+        self.img_list = [element for element in self.rec.images.values() if element.image_id in img_list_id and element.registered]
+
+        if not self.constant_pose:
+            # Do not optimize pose of first image
+            self.constant_pose = [img_list_id[0]]
+            if len(img_list_id) == 2:
+                self.constant_tvec = [img_list_id[0]]
+        if not self.constant_tvec and len(img_list_id) > 2:
+            # Do not optimize x-translation of second image
+            self.constant_tvec = [img_list_id[1]]
+
+        variable_points = []
         for im in self.img_list:
             self.add_img_to_problem(im.image_id, loss)
             for p in im.get_valid_points2D():
-                varible_points.append(p.point3D_id)
+                point3d = self.rec.points3D[p.point3D_id]
+                if point3d.error > 0.001 and point3d.track.length() <= 15:
+                    variable_points.append(p.point3D_id)
 
-        for p in varible_points:
+        for p in variable_points:
             self.add_point_to_problem(p, loss)
 
         self.parameterize_camera()
         self.parameterize_points()
 
         self.solve()
+
+        return True, variable_points
 
     # Motion only BA: all points stay fixed and only image poses get optimized
     # rec is the reconstruction object
