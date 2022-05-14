@@ -6,12 +6,17 @@ from hloc.utils import viz_3d
 from Utility.logger_setup import get_logger
 import numpy as np
 
+try:
+    from src import viz
+except ImportError as e:
+    print('Failed to load open3d, defaulting to HLOC viz')
+    viz = None
+
 logger = get_logger(__name__)
 
-# images = Path('/home/vule/Documents/COLMAP-SLAM/data/rgbd_dataset_freiburg2_xyz/rgb/')
-images = Path('data/rgbd_dataset_freiburg2_xyz/rgb/')
+images = Path('./data/rgbd_dataset_freiburg2_xyz/rgb/')
 # images = Path('data/kitti/frames/')
-outputs = Path('out/test1/')
+outputs = Path('./out/test1/')
 exports = outputs / 'reconstruction.ply'
 
 # The growth rates after which to perform global bundle adjustment.\
@@ -24,9 +29,11 @@ if __name__ == '__main__':
     frame_names = os.listdir(images)
     # Assuming the frames are indexed
     frame_names.sort()
-    frame_names = frame_names[::20]
-    frame_names = frame_names[:min(len(frame_names), 50)]
-    # Camera for Freiburg2/xyz
+    frame_names=frame_names[::20]
+    frame_names = frame_names[:min(len(frame_names), 10)]
+
+
+   # Camera for Freiburg2/xyz
     camera = pycolmap.Camera(
         model='PINHOLE',
         width=640,
@@ -144,8 +151,12 @@ if __name__ == '__main__':
 
     logger.info(f"After bundle Adjustment: {mapper.reconstruction_.summary()}")
 
-    fig = viz_3d.init_figure()
+    if viz:
+        viz.show(reconstruction, str(images))
+    else:
+        fig = viz_3d.init_figure()
 
-    # viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(0,255,0)')
-    viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(255,255,255)')
-    fig.show()
+        # viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(0,255,0)')
+        viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(255,255,255)')
+        fig.show()
+

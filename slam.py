@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 import numpy as np
 import pycolmap
-from src import features
-from src import map_initialization, enums, optimization, viz
+from src import features, viz
+from src import map_initialization, enums, optimization
 from hloc.utils import viz_3d
 from tqdm import tqdm
 
@@ -64,7 +64,7 @@ def match_to_3D_correspondences(query_detector_kps, keyframe_img, matches):
     return query_2D, keyframe_3D
 
 
-if __name__ == '__main__':
+if __name__ == '__main__' or True:
     frameNames = os.listdir(images)
 
     # Assuming the frames are indexed
