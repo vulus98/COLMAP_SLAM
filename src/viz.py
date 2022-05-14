@@ -28,15 +28,19 @@ def create_cam(img, wh_ratio, scale=1, color=[0,0,0]):
 
     return line
 
-def generate_pts(rec):
+def generate_pts(rec, path=None):
     pcd = o3d.geometry.PointCloud()
     pts = []
     colors = []
 
+    # Extract colors
+    if path:
+        rec.extract_colors_for_all_images(str(path))
+
     # Build the 3d structure
     for p in rec.points3D:
         pts += [rec.points3D[p].xyz]
-        colors += [rec.points3D[p].color]
+        colors += [np.array(rec.points3D[p].color)/255]
 
     pcd.points = o3d.utility.Vector3dVector(pts)
     pcd.colors = o3d.utility.Vector3dVector(colors)
@@ -51,6 +55,9 @@ def generate_path(rec):
     min_img = min(rec.images)
     
     cam_path = o3d.geometry.LineSet()
+    pts = []
+    ln = []
+    colors = []
         
     for img in rec.images:
         i+=1
@@ -79,8 +86,29 @@ def generate_cams(rec, scale):
 
     return cams
 
-def generate_tracks(rec):
-    pass
+def generate_tracks(rec, pt_id):
+    tracks = o3d.geometry.LineSet()
+
+    if pt_id not in rec.points3D:
+        return tracks
+
+    pts = []
+    ln = []
+    colors = []
+
+    pts += [rec.points3D[pt_id].xyz]
+    for i, t in enumerate(rec.points3D[pt_id].track.elements):
+        pts += [rec.images[t.image_id].projection_center()]
+        ln += [[0,i]]
+        colors += [[.2,.2,.2]]
+
+    ln[-1] = [i,i]
+
+    tracks.points = o3d.utility.Vector3dVector(pts)
+    tracks.lines = o3d.utility.Vector2iVector(ln)
+    tracks.colors = o3d.utility.Vector3dVector(colors)
+
+    return tracks
 
 '''
 Visualize the SLAM system with open3D
@@ -88,9 +116,9 @@ red is the start, green is the end of the camera track
 
 @param rec = pass in the reconstruction object
 '''
-def show(rec, show_cam_path=True, show_tracks=True):
+def show(rec, img_path=None, show_cam_path=True, show_track=-1):
     
-    pcd = generate_pts(rec)
+    pcd = generate_pts(rec, img_path)
 
     path = []
     tracks = []
@@ -99,10 +127,9 @@ def show(rec, show_cam_path=True, show_tracks=True):
     if show_cam_path:
         path = generate_path(rec)
 
-    if show_tracks:
-        tracks = generate_tracks(rec)
+    tracks = generate_tracks(rec, show_track)
 
     cams = generate_cams(rec, .5)
 
-    o3d.visualization.draw_geometries([pcd, path, *cams, *tracks])
+    o3d.visualization.draw_geometries([pcd, path, *cams, tracks])
 

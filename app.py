@@ -1,12 +1,9 @@
-import glob
+from pipeline import Pipeline
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
-import os
-import platform
-import sys
-import src.enums as enums
+from src import enums, viz
 
 '''
 For WSL need to install mesaos
@@ -24,23 +21,35 @@ and set opengl version with
 
 class AppWindow:
 
-    def __init__(self, width, height):
+    def __init__(self, width, height, data_path=''):
 
         self.window = gui.Application.instance.create_window("COLMAP Slam", width, height)
 
         # Default config stuff
         self.img_count = 0
+        self.pt_count = -1
         self.extractor = enums.Extractors(1)
         self.matcher = enums.Matchers(1)
         self.selector = enums.ImageSelectionMethod(1)
-        self.data_path = ""
+        self.image_path = data_path
+        self.output_path = "./out/test1"
+        self.export_name = "reconstruction.ply"
+        self.rec = Pipeline()
+        self.show_cam = True
+        self.show_path = True
+        self.show_track = -1
+        self.cam_scale = .5
+        
+        # default material
+        self.mat = o3d.visualization.rendering.MaterialRecord()
+        self.mat.shader = "defaultUnlit"
 
-
-        w = self.window  # to make the code more concise
+        w = self.window 
 
         # Reconstruction widget
         self._scene = gui.SceneWidget()
         self._scene.scene = rendering.Open3DScene(w.renderer)
+        self._scene.set_view_controls(gui.SceneWidget.Controls.FLY)
 
         em = w.theme.font_size
         separation_height = int(round(0.5 * em))
@@ -101,23 +110,28 @@ class AppWindow:
 
         _show_cam_path = gui.Checkbox("Show Camera Path")
         _show_cam_path.set_on_checked(self._on_show_path)
+        _show_cam_path.checked = self.show_path
         view_ctrls.add_fixed(separation_height)
         view_ctrls.add_child(_show_cam_path)
 
-        _show_tracks = gui.Checkbox("Show Camera Tracks")
-        _show_tracks.set_on_checked(self._on_show_tracks)
-        view_ctrls.add_fixed(separation_height)
-        view_ctrls.add_child(_show_tracks)
-
         _show_cams = gui.Checkbox("Show Cameras")
         _show_cams.set_on_checked(self._on_show_cams)
+        _show_cams.checked = self.show_cam
         view_ctrls.add_fixed(separation_height)
         view_ctrls.add_child(_show_cams)
 
+        view_ctrls.add_child(gui.Label("Show Camera Track"))
+        self._camera_tracks = gui.Slider(gui.Slider.INT)
+        self._camera_tracks.set_limits(-1, self.pt_count)
+        self._camera_tracks.int_value = self.show_track
+        self._camera_tracks.set_on_value_changed(self._on_show_tracks)
+        view_ctrls.add_child(self._camera_tracks)
+
         view_ctrls.add_child(gui.Label("Camera Scale"))
         _cam_size = gui.Slider(gui.Slider.DOUBLE)
-        _cam_size.set_limits(0, 10)
+        _cam_size.set_limits(0, 5)
         _cam_size.set_on_value_changed(self._on_cam_scale)
+        _cam_size.double_value = self.cam_scale
         view_ctrls.add_child(_cam_size)
 
         view_ctrls.add_fixed(separation_height)
@@ -172,24 +186,40 @@ class AppWindow:
         print(f"now using {name}")
         self.selector = enums.ImageSelectionMethod(idx+1)
 
-
     def _on_matcher(self, name, idx):
         print(f"now using {name}")
         self.matcher = enums.Matchers(idx+1)
 
-
     def _on_show_path(self, show):
-        print(show)
+        if not show and self._scene.scene.has_geometry("__path__"):
+            self._scene.scene.remove_geometry("__path__")
 
-    def _on_show_tracks(self, show):
-        print(show)
+        elif show and self.img_count > 0:
+            path = viz.generate_path(self.rec.reconstruction)
+            self._scene.scene.add_geometry("__path__", path, self.mat)
+
+    def _on_show_tracks(self, pt_id):
+        if self._scene.scene.has_geometry("__track__"):
+            self._scene.scene.remove_geometry("__track__")
+
+        if pt_id > 0:
+            track = viz.generate_tracks(self.rec.reconstruction, int(pt_id))
+            print(track)
+            self._scene.scene.add_geometry("__track__", track, self.mat)
 
     def _on_show_cams(self, show):
-        print(show)
+        if self._scene.scene.has_geometry("__cams0__"):
+            for i in range(self.img_count+1):
+                self._scene.scene.remove_geometry(f"__cams{i}__")
+
+        elif show and self.img_count > 0:
+            cams = viz.generate_cams(self.rec.reconstruction, self.cam_scale)
+            for i, cam in enumerate(cams):
+                self._scene.scene.add_geometry(f"__cams{i}__", cam, self.mat)
 
     def _on_cam_scale(self, val):
         self.cam_scale = val
-        print(val)
+        self._on_show_cams(True)
 
     def _on_start_img(self, val):
         self.start_img = val
@@ -197,7 +227,7 @@ class AppWindow:
 
     def _on_end_img(self, val):
         self.end_img = val
-        self.start_img.set_limit(0,val)
+        self._start_img.set_limits(0,val)
 
     def _on_bg_color(self, new_color):
         self._scene.scene.set_background([new_color.red, new_color.green, new_color.blue, new_color.alpha])
@@ -300,6 +330,9 @@ class AppWindow:
 
     def _run_reconstruction(self):
         print("Checking settings....")
+        
+        self.rec.reset()
+        self.rec.load_data(self.image_path, self.output_path, self.export_name)
 
         self.reconstruct()
 
@@ -365,14 +398,36 @@ class AppWindow:
 
         self._scene.scene.scene.render_to_image(on_image)
 
+
+
     def reconstruct(self):
-        print(f"Running on data at {self.data_path} with {self.extractor.name}, {self.matcher.name} and {self.selector.name}...")
+        print(f"Running on data at {self.image_path} with {self.extractor.name}, {self.matcher.name} and {self.selector.name}...")
+
+        self.rec.run()
+        self.img_count = max(self.rec.reconstruction.images)
+        self.pt_count = len(self.rec.reconstruction.points3D)
+        
+        self._start_img.set_limits(0,self.img_count)
+        self._end_img.set_limits(0,self.img_count)
+        self._end_img.int_value = self.img_count
+        self._camera_tracks.set_limits(-1, self.pt_count)
+
+        self._scene.scene.clear_geometry()
+
+        self._on_show_cams(self.show_cam)
+        self._on_show_path(self.show_path)
+        self._on_show_tracks(self.show_track)
+
+        pts = viz.generate_pts(self.rec.reconstruction)
+        bounds = pts.get_axis_aligned_bounding_box()
+        pts = viz.generate_pts(self.rec.reconstruction, self.rec.image_path)
+        self._scene.scene.add_geometry("__recon__", pts, self.mat)
 
 def main():
 
     gui.Application.instance.initialize()
 
-    w = AppWindow(1024, 768)
+    w = AppWindow(1024, 768, "./data/rgbd_dataset_freiburg2_xyz/rgb/")
 
     gui.Application.instance.run()
 
