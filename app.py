@@ -143,6 +143,11 @@ class AppWindow:
         _pt_size.double_value = 10
         view_ctrls.add_child(_pt_size)
 
+        _reset_view = gui.Button("Reset Camera")
+        _reset_view.set_on_clicked(self._reset_view)
+        view_ctrls.add_fixed(separation_height)
+        view_ctrls.add_child(_reset_view)
+
         view_ctrls.add_fixed(separation_height)
 
         # Not sure if we want to keep these, should be used to view only a portion of the reconstruction/animate progress through the reconstruction
@@ -247,6 +252,14 @@ class AppWindow:
 
     def _on_point_size(self, size):
         self._point_size.double_value = int(size)
+
+    def _reset_view(self):
+        
+        pt_bounds = viz.generate_pts(self.rec.reconstruction).get_axis_aligned_bounding_box()
+        cam_bounds = viz.generate_path(self.rec.reconstruction).get_oriented_bounding_box()
+        self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,1])@cam_bounds.R)
+
+
 
     # Can remove these, may want to keep the file opener for the settings...
 
@@ -440,7 +453,6 @@ class AppWindow:
             
             pt_bounds = pts.get_axis_aligned_bounding_box()
             cam_bounds = viz.generate_path(self.rec.reconstruction).get_oriented_bounding_box()
-            print(cam_bounds.R, cam_bounds.extent,cam_bounds.get_box_points())
             self._scene.setup_camera(60, pt_bounds, pt_bounds.get_center())
 
             self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,1])@cam_bounds.R)
