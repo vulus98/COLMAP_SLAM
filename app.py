@@ -38,11 +38,13 @@ class AppWindow:
         self.show_cam = True
         self.show_path = True
         self.show_track = -1
-        self.cam_scale = .5
+        self.cam_scale = 10
+        self.is_setup = False
         
         # default material
         self.mat = o3d.visualization.rendering.MaterialRecord()
         self.mat.shader = "defaultUnlit"
+        self.mat.point_size = 10 * self.window.scaling
 
         w = self.window 
 
@@ -129,10 +131,17 @@ class AppWindow:
 
         view_ctrls.add_child(gui.Label("Camera Scale"))
         _cam_size = gui.Slider(gui.Slider.DOUBLE)
-        _cam_size.set_limits(0, 5)
+        _cam_size.set_limits(0, 50)
         _cam_size.set_on_value_changed(self._on_cam_scale)
         _cam_size.double_value = self.cam_scale
         view_ctrls.add_child(_cam_size)
+
+        view_ctrls.add_child(gui.Label("Point Scale"))
+        _pt_size = gui.Slider(gui.Slider.DOUBLE)
+        _pt_size.set_limits(3, 50)
+        _pt_size.set_on_value_changed(self._on_pt_scale)
+        _pt_size.double_value = 10
+        view_ctrls.add_child(_pt_size)
 
         view_ctrls.add_fixed(separation_height)
 
@@ -220,6 +229,10 @@ class AppWindow:
     def _on_cam_scale(self, val):
         self.cam_scale = val
         self._on_show_cams(True)
+
+    def _on_pt_scale(self, val):
+        self.mat.point_size = val * self.window.scaling
+        self._scene.scene.update_material(self.mat)
 
     def _on_start_img(self, val):
         self.start_img = val
@@ -419,9 +432,19 @@ class AppWindow:
         self._on_show_tracks(self.show_track)
 
         pts = viz.generate_pts(self.rec.reconstruction)
-        bounds = pts.get_axis_aligned_bounding_box()
         pts = viz.generate_pts(self.rec.reconstruction, self.rec.image_path)
         self._scene.scene.add_geometry("__recon__", pts, self.mat)
+
+        if not self.is_setup:
+            self.is_setup = True
+            
+            pt_bounds = pts.get_axis_aligned_bounding_box()
+            cam_bounds = viz.generate_path(self.rec.reconstruction).get_oriented_bounding_box()
+            print(cam_bounds.R, cam_bounds.extent,cam_bounds.get_box_points())
+            self._scene.setup_camera(60, pt_bounds, pt_bounds.get_center())
+
+            self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,1])@cam_bounds.R)
+            
 
 def main():
 
