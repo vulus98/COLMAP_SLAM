@@ -12,7 +12,7 @@ try:
 except ImportError as e:
     print('Failed to load open3d, defaulting to HLOC viz')
     viz = None
-    from hloc.utils import viz_3d
+from hloc.utils import viz_3d
 
 
 
@@ -56,10 +56,6 @@ class Pipeline:
         
         self.logger = get_logger(__name__)
 
-        images = Path('./data/rgbd_dataset_freiburg2_xyz/rgb/')
-        # images = Path('data/kitti/frames/')
-        outputs = Path('./out/test1/')
-        exports = outputs / 'reconstruction.ply'
 
 
     def reset(self):
@@ -175,16 +171,16 @@ class Pipeline:
         self.logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
 
 
-    def vizualize(self):
+    def vizualize(self, hloc=False):
         self.logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
 
-        if viz:
+        if viz and not hloc:
             viz.show(self.reconstruction, str(self.image_path))
         else:
             fig = viz_3d.init_figure()
 
             # viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(0,255,0)')
-            viz_3d.plot_reconstruction(fig, self.rec, min_track_length=0, color='rgb(255,255,255)')
+            viz_3d.plot_reconstruction(fig, self.rec, min_track_length=0, color='rgb(255,0,0)')
             fig.show()
 
 
