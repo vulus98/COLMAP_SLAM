@@ -28,22 +28,37 @@ class AppWindow:
         # Default config stuff
         self.img_count = 0
         self.pt_count = -1
+        self.frame_skip = 20
         self.extractor = enums.Extractors(1)
         self.matcher = enums.Matchers(1)
         self.selector = enums.ImageSelectionMethod(1)
         self.image_path = data_path
         self.output_path = "./out/test1"
         self.export_name = "reconstruction.ply"
+
+        try:
+            self.raw_img_count = len(os.listdir(data_path))
+        except:
+            print("Error opening path")
+            self.raw_img_count = 0
+
+        self.frame_final = self.raw_img_count
+
         self.rec = Pipeline()
         self.show_cam = True
         self.show_path = True
         self.show_track = -1
         self.cam_scale = 10
         self.is_setup = False
+        self.start_img = 0
+        self.end_img = 0
         
         # default material
         self.mat = o3d.visualization.rendering.MaterialRecord()
         self.mat.shader = "defaultUnlit"
+        self.mat.base_color = (1, 1, 1, 1)
+        self.mat.base_reflectance = 0.1
+
         self.mat.point_size = 10 * self.window.scaling
 
         w = self.window 
@@ -60,7 +75,7 @@ class AppWindow:
 
         self._settings_panel = gui.Vert(0, gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
 
-        # File path setting   _on_menu_open
+        # File path setting
 
         _data_loading = gui.Horiz(0,  gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
         self._settings_panel.add_child(gui.Label("Data Settings"))
@@ -82,8 +97,19 @@ class AppWindow:
 
         self._settings_panel.add_child(_data_loading)
         
+        self._settings_panel.add_child(gui.Label("Number of frames to skip"))
+        _frame_skip = gui.Slider(gui.Slider.INT)
+        _frame_skip.set_limits(0, 30)
+        _frame_skip.int_value = self.frame_skip
+        _frame_skip.set_on_value_changed(self._on_frame_skip)
+        self._settings_panel.add_child(_frame_skip)
 
-
+        self._settings_panel.add_child(gui.Label("Max number of frames"))
+        self._frame_final = gui.Slider(gui.Slider.INT)
+        self._frame_final.set_limits(0, self.raw_img_count // self.frame_skip)
+        self._frame_final.int_value = self.raw_img_count // self.frame_skip
+        self._frame_final.set_on_value_changed(self._on_frame_final)
+        self._settings_panel.add_child(self._frame_final)
 
 
         # Next basic reconstruction settings
@@ -206,6 +232,15 @@ class AppWindow:
 
     # Whole bunch of on event listeners for setting changes above
 
+    def _on_frame_final(self, val):
+        self.frame_final = int(val)
+
+    def _on_frame_skip(self, val):
+        self.frame_skip = int(val)
+        self._frame_final.int_value = self.raw_img_count // self.frame_skip
+        self._frame_final.set_limits(0, self.raw_img_count // self.frame_skip)
+        
+
     def _on_layout(self, layout_context):
         # The on_layout callback should set the frame (position + size) of every
         # child correctly. After the callback is done the window will layout
@@ -233,35 +268,47 @@ class AppWindow:
         self.matcher = enums.Matchers(idx+1)
 
     def _on_show_path(self, show):
-        if not show and self._scene.scene.has_geometry("__path__"):
+        if self._scene.scene.has_geometry("__path__"):
             self._scene.scene.remove_geometry("__path__")
 
-        elif show and self.img_count > 0:
+        if show and self.start_img < self.end_img:
+            # path = viz.generate_path(self.rec.reconstruction, lambda img: img > self.start_img and img < self.end_img)
+
             path = viz.generate_path(self.rec.reconstruction)
-            self._scene.scene.add_geometry("__path__", path, self.mat)
+            print(path)
+            print(path.points)
+            print(path.lines)
+            if len(path.points) > 0:
+
+                self._scene.scene.add_geometry("__path__", path, self.mat)
 
     def _on_show_tracks(self, pt_id):
         if self._scene.scene.has_geometry("__track__"):
             self._scene.scene.remove_geometry("__track__")
 
         if pt_id > 0:
+            # track = viz.generate_tracks(self.rec.reconstruction, int(pt_id),lambda elem: elem.image_id > self.start_img and elem.image_id < self.end_img)
             track = viz.generate_tracks(self.rec.reconstruction, int(pt_id))
-            print(track)
-            self._scene.scene.add_geometry("__track__", track, self.mat)
+
+            if len(track.points) > 0:
+                
+                print(track)
+                self._scene.scene.add_geometry("__track__", track, self.mat)
 
     def _on_show_cams(self, show):
-        if self._scene.scene.has_geometry("__cams0__"):
-            for i in range(self.img_count+1):
-                self._scene.scene.remove_geometry(f"__cams{i}__")
+        if self._scene.scene.has_geometry("__cams__"):
+            self._scene.scene.remove_geometry("__cams__")
 
-        elif show and self.img_count > 0:
-            cams = viz.generate_cams(self.rec.reconstruction, self.cam_scale)
-            for i, cam in enumerate(cams):
-                self._scene.scene.add_geometry(f"__cams{i}__", cam, self.mat)
+        if show and self.start_img < self.end_img:
+            cams = viz.generate_cams(self.rec.reconstruction, self.cam_scale, lambda img: img > self.start_img and img < self.end_img)
+            # cams = viz.generate_cams(self.rec.reconstruction, self.cam_scale)
+
+            if len(cams.points) > 0:
+                self._scene.scene.add_geometry(f"__cams__", cams, self.mat)
 
     def _on_cam_scale(self, val):
         self.cam_scale = val
-        self._on_show_cams(True)
+        self._on_show_cams(self.show_cam)
 
     def _on_pt_scale(self, val):
         self.mat.point_size = val * self.window.scaling
@@ -270,10 +317,19 @@ class AppWindow:
     def _on_start_img(self, val):
         self.start_img = val
         self._end_img.set_limits(val, self.img_count)
+        self.update_pts()
+        self._on_show_cams(self.show_cam)
+        self._on_show_path(self.show_path)
+        self._on_show_tracks(self.show_track)
+
 
     def _on_end_img(self, val):
         self.end_img = val
         self._start_img.set_limits(0,val)
+        self.update_pts()
+        self._on_show_cams(self.show_cam)
+        self._on_show_path(self.show_path)
+        self._on_show_tracks(self.show_track)
 
     def _on_bg_color(self, new_color):
         self._scene.scene.set_background([new_color.red, new_color.green, new_color.blue, new_color.alpha])
@@ -284,8 +340,8 @@ class AppWindow:
     def _reset_view(self):
         
         pt_bounds = viz.generate_pts(self.rec.reconstruction).get_axis_aligned_bounding_box()
-        cam_bounds = viz.generate_cams(self.rec.reconstruction, 5).get_oriented_bounding_box()
-        self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,1])@cam_bounds.R)
+        cam_bounds = viz.generate_cams(self.rec.reconstruction, self.cam_scale).get_oriented_bounding_box()
+        self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,-1])@cam_bounds.R)
 
 
 
@@ -315,13 +371,25 @@ class AppWindow:
         self.window.close_dialog()
         self.image_path = filename
         print(filename)
-        self._data_path.text = filename
+
+        try:
+            self.raw_img_count = len(os.listdir(filename))
+        except:
+            print("Error opening path")
+            self.raw_img_count = 0
+
+        
+        self._frame_final.set_limits(0, self.raw_img_count // self.frame_skip)
+        self._frame_final.int_value = self.raw_img_count // self.frame_skip
+
+
+        self._data_path.text = '/'.join(filename.split('/')[-2:])
 
     def _on_out_dialog_done(self, filename):
         self.window.close_dialog()
         self.output_path = filename
         print(filename)
-        self._out_path.text = filename
+        self._out_path.text = '/'.join(filename.split('/')[-2:])
 
     def _on_menu_export(self):
         dlg = gui.FileDialog(gui.FileDialog.SAVE, "Choose file to save",
@@ -344,7 +412,7 @@ class AppWindow:
         print("Checking settings....")
         
         self.rec.reset()
-        self.rec.load_data(self.image_path, self.output_path, self.export_name)
+        self.rec.load_data(self.image_path, self.output_path, self.export_name, init_max_num_images=60, frame_skip=int(self.frame_skip), max_frame=int(self.frame_final))
 
         self.reconstruct()
 
@@ -361,6 +429,14 @@ class AppWindow:
 
         self._scene.scene.scene.render_to_image(on_image)
 
+    def update_pts(self):
+        if self._scene.scene.has_geometry("__recon__"):
+            self._scene.scene.remove_geometry(f"__recon__")
+        
+        pts = viz.generate_pts(self.rec.reconstruction, self.rec.image_path, lambda pt: len([e for e in pt.track.elements if e.image_id > self.start_img and e.image_id < self.end_img ]) > 0)
+        self._scene.scene.add_geometry("__recon__", pts, self.mat)
+
+        return pts
 
 
     def reconstruct(self):
@@ -369,6 +445,10 @@ class AppWindow:
         self.rec.run()
         self.img_count = max(self.rec.reconstruction.images)
         self.pt_count = len(self.rec.reconstruction.points3D)
+        self.end_img  = self.img_count
+
+        print(self.rec.reconstruction.images.keys())
+        print(self.rec.reconstruction.reg_image_ids())
         
         self._start_img.set_limits(0,self.img_count)
         self._end_img.set_limits(0,self.img_count)
@@ -381,9 +461,7 @@ class AppWindow:
         self._on_show_path(self.show_path)
         self._on_show_tracks(self.show_track)
 
-        pts = viz.generate_pts(self.rec.reconstruction)
-        pts = viz.generate_pts(self.rec.reconstruction, self.rec.image_path)
-        self._scene.scene.add_geometry("__recon__", pts, self.mat)
+        pts = self.update_pts()
 
         if not self.is_setup:
             self.is_setup = True
