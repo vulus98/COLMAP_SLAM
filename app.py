@@ -4,7 +4,7 @@ import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 from src import enums, viz
-
+import os
 '''
 For WSL need to install mesaos
     
@@ -59,9 +59,37 @@ class AppWindow:
         # Create the settings panel on the right
 
         self._settings_panel = gui.Vert(0, gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
+
+        # File path setting   _on_menu_open
+
+        _data_loading = gui.Horiz(0,  gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
+        self._settings_panel.add_child(gui.Label("Data Settings"))
+        self._data_path = gui.Label(f"Data: {self.image_path}")
+        self._settings_panel.add_child(self._data_path)
+
+        self._out_path = gui.Label(f"Out: {self.output_path}")
+        self._settings_panel.add_child(self._out_path)
+
+        self._settings_panel.add_child(gui.Label("Edit Path"))
+        _data_selector = gui.Button("Data")
+        _data_selector.set_on_clicked(self._on_data_open)
+
+        _output_selector = gui.Button("Output")
+        _output_selector.set_on_clicked(self._on_out_open)
+
+        _data_loading.add_child(_data_selector)
+        _data_loading.add_child(_output_selector)
+
+        self._settings_panel.add_child(_data_loading)
+        
+
+
+
+
+        # Next basic reconstruction settings
         self._settings_panel.add_child(gui.Label("Reconstruction Settings"))
 
-        # Start with reconstruction settings
+
         _extractor = gui.Combobox()
         for name, _ in enums.Extractors.__members__.items():
             _extractor.add_item(name)
@@ -256,50 +284,44 @@ class AppWindow:
     def _reset_view(self):
         
         pt_bounds = viz.generate_pts(self.rec.reconstruction).get_axis_aligned_bounding_box()
-        cam_bounds = viz.generate_path(self.rec.reconstruction).get_oriented_bounding_box()
+        cam_bounds = viz.generate_cams(self.rec.reconstruction, 5).get_oriented_bounding_box()
         self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,1])@cam_bounds.R)
 
 
 
     # Can remove these, may want to keep the file opener for the settings...
 
-    def _on_menu_open(self):
-        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose file to load",
+    def _on_data_open(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose root folder of image data",
                              self.window.theme)
-        dlg.add_filter(
-            ".ply .stl .fbx .obj .off .gltf .glb",
-            "Triangle mesh files (.ply, .stl, .fbx, .obj, .off, "
-            ".gltf, .glb)")
-        dlg.add_filter(
-            ".xyz .xyzn .xyzrgb .ply .pcd .pts",
-            "Point cloud files (.xyz, .xyzn, .xyzrgb, .ply, "
-            ".pcd, .pts)")
-        dlg.add_filter(".ply", "Polygon files (.ply)")
-        dlg.add_filter(".stl", "Stereolithography files (.stl)")
-        dlg.add_filter(".fbx", "Autodesk Filmbox files (.fbx)")
-        dlg.add_filter(".obj", "Wavefront OBJ files (.obj)")
-        dlg.add_filter(".off", "Object file format (.off)")
-        dlg.add_filter(".gltf", "OpenGL transfer files (.gltf)")
-        dlg.add_filter(".glb", "OpenGL binary transfer files (.glb)")
-        dlg.add_filter(".xyz", "ASCII point cloud files (.xyz)")
-        dlg.add_filter(".xyzn", "ASCII point cloud with normals (.xyzn)")
-        dlg.add_filter(".xyzrgb",
-                       "ASCII point cloud files with colors (.xyzrgb)")
-        dlg.add_filter(".pcd", "Point Cloud Data files (.pcd)")
-        dlg.add_filter(".pts", "3D Points files (.pts)")
-        dlg.add_filter("", "All files")
 
         # A file dialog MUST define on_cancel and on_done functions
         dlg.set_on_cancel(self._on_file_dialog_cancel)
-        dlg.set_on_done(self._on_load_dialog_done)
+        dlg.set_on_done(self._on_data_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_out_open(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose output folder for reconstruction",
+                             self.window.theme)
+
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_out_dialog_done)
         self.window.show_dialog(dlg)
 
     def _on_file_dialog_cancel(self):
         self.window.close_dialog()
 
-    def _on_load_dialog_done(self, filename):
+    def _on_data_dialog_done(self, filename):
         self.window.close_dialog()
-        self.load(filename)
+        self.image_path = filename
+        print(filename)
+        self._data_path.text = filename
+
+    def _on_out_dialog_done(self, filename):
+        self.window.close_dialog()
+        self.output_path = filename
+        print(filename)
+        self._out_path.text = filename
 
     def _on_menu_export(self):
         dlg = gui.FileDialog(gui.FileDialog.SAVE, "Choose file to save",
@@ -314,42 +336,6 @@ class AppWindow:
         frame = self._scene.frame
         self.export_image(filename, frame.width, frame.height)
 
-    def _on_menu_quit(self):
-        gui.Application.instance.quit()
-
-    def _on_menu_toggle_settings_panel(self):
-        self._settings_panel.visible = not self._settings_panel.visible
-        gui.Application.instance.menubar.set_checked(
-            AppWindow.MENU_SHOW_SETTINGS, self._settings_panel.visible)
-
-    def _on_menu_about(self):
-        # Show a simple dialog. Although the Dialog is actually a widget, you can
-        # treat it similar to a Window for layout and put all the widgets in a
-        # layout which you make the only child of the Dialog.
-        em = self.window.theme.font_size
-        dlg = gui.Dialog("About")
-
-        # Add the text
-        dlg_layout = gui.Vert(em, gui.Margins(em, em, em, em))
-        dlg_layout.add_child(gui.Label("Open3D GUI Example"))
-
-        # Add the Ok button. We need to define a callback function to handle
-        # the click.
-        ok = gui.Button("OK")
-        ok.set_on_clicked(self._on_about_ok)
-
-        # We want the Ok button to be an the right side, so we need to add
-        # a stretch item to the layout, otherwise the button will be the size
-        # of the entire row. A stretch item takes up as much space as it can,
-        # which forces the button to be its minimum size.
-        h = gui.Horiz()
-        h.add_stretch()
-        h.add_child(ok)
-        h.add_stretch()
-        dlg_layout.add_child(h)
-
-        dlg.add_child(dlg_layout)
-        self.window.show_dialog(dlg)
 
     def _on_about_ok(self):
         self.window.close_dialog()
@@ -362,55 +348,6 @@ class AppWindow:
 
         self.reconstruct()
 
-    def load(self, path):
-        self._scene.scene.clear_geometry()
-
-        geometry = None
-        geometry_type = o3d.io.read_file_geometry_type(path)
-
-        mesh = None
-        if geometry_type & o3d.io.CONTAINS_TRIANGLES:
-            mesh = o3d.io.read_triangle_mesh(path)
-        if mesh is not None:
-            if len(mesh.triangles) == 0:
-                print(
-                    "[WARNING] Contains 0 triangles, will read as point cloud")
-                mesh = None
-            else:
-                mesh.compute_vertex_normals()
-                if len(mesh.vertex_colors) == 0:
-                    mesh.paint_uniform_color([1, 1, 1])
-                geometry = mesh
-            # Make sure the mesh has texture coordinates
-            if not mesh.has_triangle_uvs():
-                uv = np.array([[0.0, 0.0]] * (3 * len(mesh.triangles)))
-                mesh.triangle_uvs = o3d.utility.Vector2dVector(uv)
-        else:
-            print("[Info]", path, "appears to be a point cloud")
-
-        if geometry is None:
-            cloud = None
-            try:
-                cloud = o3d.io.read_point_cloud(path)
-            except Exception:
-                pass
-            if cloud is not None:
-                print("[Info] Successfully read", path)
-                if not cloud.has_normals():
-                    cloud.estimate_normals()
-                cloud.normalize_normals()
-                geometry = cloud
-            else:
-                print("[WARNING] Failed to read points", path)
-
-        if geometry is not None:
-            try:
-                self._scene.scene.add_geometry("__model__", geometry,
-                                               self.settings.material)
-                bounds = geometry.get_axis_aligned_bounding_box()
-                self._scene.setup_camera(60, bounds, bounds.get_center())
-            except Exception as e:
-                print(e)
 
     def export_image(self, path, width, height):
 
@@ -452,7 +389,7 @@ class AppWindow:
             self.is_setup = True
             
             pt_bounds = pts.get_axis_aligned_bounding_box()
-            cam_bounds = viz.generate_path(self.rec.reconstruction).get_oriented_bounding_box()
+            cam_bounds = viz.generate_cams(self.rec.reconstruction,5).get_oriented_bounding_box()
             self._scene.setup_camera(60, pt_bounds, pt_bounds.get_center())
 
             self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,1])@cam_bounds.R)
