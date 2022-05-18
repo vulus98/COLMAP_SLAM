@@ -4,13 +4,6 @@ from cv2 import exp
 import pycolmap
 from src import enums, images_manager, incremental_mapper
 from Utility.logger_setup import get_logger
-import numpy as np
-try:
-    from src import viz
-except ImportError as e:
-    print('Failed to load open3d, defaulting to HLOC viz')
-    viz = None
-    from hloc.utils import viz_3d
 
 logger = get_logger('pipeline.py')
 
@@ -50,6 +43,7 @@ class Pipeline:
         self.output_path = ""
         self.export_name = ""
 
+
     def reset(self):
         self.reconstruction = pycolmap.Reconstruction()
         self.reconstruction.add_camera(self.camera)
@@ -71,7 +65,7 @@ class Pipeline:
 
 
 
-    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images = 60, frame_skip=20, max_frame=2):
+    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images = 60, frame_skip=20, max_frame=10):
         if images:
             self.image_path = Path(images)
         
@@ -181,7 +175,6 @@ class Pipeline:
             viz.show(self.reconstruction, str(self.image_path))
         else:
             logger.warning(f"Selected vizualizer is not valid: {vizualizer}")
-
 
 
 if __name__ == '__main__':
