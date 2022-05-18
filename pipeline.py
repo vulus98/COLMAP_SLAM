@@ -10,7 +10,7 @@ try:
 except ImportError as e:
     print('Failed to load open3d, defaulting to HLOC viz')
     viz = None
-    from hloc.utils import viz_3d
+from hloc.utils import viz_3d
 
 logger = get_logger('pipeline.py')
 
@@ -50,6 +50,7 @@ class Pipeline:
         self.output_path = ""
         self.export_name = ""
 
+
     def reset(self):
         self.reconstruction = pycolmap.Reconstruction()
         self.reconstruction.add_camera(self.camera)
@@ -71,7 +72,7 @@ class Pipeline:
 
 
 
-    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images = 60, frame_skip=20, max_frame=2):
+    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images = 60, frame_skip=20, max_frame=10):
         if images:
             self.image_path = Path(images)
         
@@ -183,7 +184,6 @@ class Pipeline:
             logger.warning(f"Selected vizualizer is not valid: {vizualizer}")
 
 
-
 if __name__ == '__main__':
 
     images = Path('./data/rgbd_dataset_freiburg2_xyz/rgb/')
@@ -193,4 +193,4 @@ if __name__ == '__main__':
     slam = Pipeline()
     slam.load_data(images, output, export_name)
     slam.run()
-    slam.vizualize(vizualizer='open3d')
+    slam.vizualize(vizualizer='hloc')

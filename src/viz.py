@@ -28,7 +28,10 @@ def create_cam(img, wh_ratio, scale=1, color=[0,0,0]):
 
     return line
 
-def generate_pts(rec, path=None):
+'''
+Filter x is a Point3D
+'''
+def generate_pts(rec, path=None, filter = lambda x: True):
     pcd = o3d.geometry.PointCloud()
     pts = []
     colors = []
@@ -39,15 +42,16 @@ def generate_pts(rec, path=None):
 
     # Build the 3d structure
     for p in rec.points3D:
-        pts += [rec.points3D[p].xyz]
-        colors += [np.array(rec.points3D[p].color)/255]
+        if filter(rec.points3D[p]):
+            pts += [rec.points3D[p].xyz]
+            colors += [np.array(rec.points3D[p].color)/255]
 
     pcd.points = o3d.utility.Vector3dVector(pts)
     pcd.colors = o3d.utility.Vector3dVector(colors)
 
     return pcd
 
-def generate_path(rec):
+def generate_path(rec, filter = lambda x: True):
     i = -1
 
     # Build the camera path
@@ -60,13 +64,15 @@ def generate_path(rec):
     colors = []
         
     for img in rec.images:
-        i+=1
-        pts += [(img, rec.images[img].projection_center())]
-        colors += [[(img-min_img)/max_img,1-(img-min_img)/max_img,0]]
-        ln += [[i, i+1]]
+        if filter(img):
+            i+=1
+            pts += [(img, rec.images[img].projection_center())]
+            colors += [[(img-min_img)/max_img,1-(img-min_img)/max_img,0]]
+            ln += [[i, i+1]]
 
-    ln[-1] = [i,i]
-    pts = [x[1] for x in pts]
+    if len(ln)>0:
+        ln[-1] = [i,i]
+        pts = [x[1] for x in pts]
 
     cam_path.points = o3d.utility.Vector3dVector(pts)
     cam_path.colors = o3d.utility.Vector3dVector(colors)
@@ -74,19 +80,26 @@ def generate_path(rec):
 
     return cam_path
 
-def generate_cams(rec, scale):
-    cams = []
+'''
+Filter x is the image id number
+'''
+def generate_cams(rec, scale, filter = lambda x: True):
+    cams = o3d.geometry.LineSet()
     ratio = rec.cameras[0].width/rec.cameras[0].height
 
     max_img = max(rec.images)
     min_img = min(rec.images)
 
     for img in rec.images:
-        cams += [create_cam(rec.images[img],ratio, scale, [(img-min_img)/max_img,1-(img-min_img)/max_img,0])]
+        if filter(img):
+            cams += create_cam(rec.images[img],ratio, scale, [(img-min_img)/max_img,1-(img-min_img)/max_img,0])
 
     return cams
 
-def generate_tracks(rec, pt_id):
+'''
+Filter x is a TrackElement
+'''
+def generate_tracks(rec, pt_id, filter = lambda x: True):
     tracks = o3d.geometry.LineSet()
 
     if pt_id not in rec.points3D:
@@ -98,9 +111,10 @@ def generate_tracks(rec, pt_id):
 
     pts += [rec.points3D[pt_id].xyz]
     for i, t in enumerate(rec.points3D[pt_id].track.elements):
-        pts += [rec.images[t.image_id].projection_center()]
-        ln += [[0,i]]
-        colors += [[.2,.2,.2]]
+        if filter(t):
+            pts += [rec.images[t.image_id].projection_center()]
+            ln += [[0,i]]
+            colors += [[.2,.2,.2]]
 
     ln[-1] = [i,i]
 
@@ -131,5 +145,5 @@ def show(rec, img_path=None, show_cam_path=True, show_track=-1):
 
     cams = generate_cams(rec, .5)
 
-    o3d.visualization.draw_geometries([pcd, path, *cams, tracks])
+    o3d.visualization.draw_geometries([pcd, path, cams, tracks])
 
