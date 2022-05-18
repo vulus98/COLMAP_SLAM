@@ -1,4 +1,3 @@
-from asyncio.log import logger
 import os
 from pathlib import Path
 from cv2 import exp
@@ -6,7 +5,6 @@ import pycolmap
 from src import enums, images_manager, incremental_mapper
 from Utility.logger_setup import get_logger
 import numpy as np
-
 try:
     from src import viz
 except ImportError as e:
@@ -14,7 +12,7 @@ except ImportError as e:
     viz = None
     from hloc.utils import viz_3d
 
-
+logger = get_logger('pipeline.py')
 
 class Pipeline:
 
@@ -52,16 +50,6 @@ class Pipeline:
         self.output_path = ""
         self.export_name = ""
 
-
-        
-        self.logger = get_logger(__name__)
-
-        images = Path('./data/rgbd_dataset_freiburg2_xyz/rgb/')
-        # images = Path('data/kitti/frames/')
-        outputs = Path('./out/test1/')
-        exports = outputs / 'reconstruction.ply'
-
-
     def reset(self):
         self.reconstruction = pycolmap.Reconstruction()
         self.reconstruction.add_camera(self.camera)
@@ -83,7 +71,7 @@ class Pipeline:
 
 
 
-    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images = 60, frame_skip=20, max_frame=10):
+    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images = 60, frame_skip=20, max_frame=2):
         if images:
             self.image_path = Path(images)
         
@@ -92,7 +80,7 @@ class Pipeline:
 
         if exports:
             if not self.output_path:
-                logger.warn("Set output path first!")
+                logger.warning("Set output path first!")
             self.export_name = self.output_path / exports
 
         if self.image_path:
@@ -111,14 +99,14 @@ class Pipeline:
                                                         self.matcher)
 
         if not self.image_path:
-            self.logger.warn("NEED TO LOAD IMAGE DATA!")
+            logger.warning("NEED TO LOAD IMAGE DATA!")
 
         self.inc_mapper_options.init_max_num_images = init_max_num_images
 
             
     def run(self):
         if not self.img_manager:
-            self.logger.error("Load images first!")
+            logger.error("Load images first!")
             return
 
         self.mapper.BeginReconstruction(self.reconstruction, self.graph, self.img_manager)
@@ -172,20 +160,28 @@ class Pipeline:
                 num_points_last_global_ba = self.reconstruction.num_points3D()
             next_image_ids = self.mapper.FindNextImages(self.inc_mapper_options)
 
-        self.logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
+        logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
 
 
-    def vizualize(self):
-        self.logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
+    def vizualize(self, vizualizer='hloc'): # or vizualizer='open3d'
+        logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
 
-        if viz:
+        if vizualizer == 'hloc':
+            from hloc.utils import viz_3d
+            fig = viz_3d.init_figure()
+            viz_3d.plot_reconstruction(fig, self.reconstruction, min_track_length=0, color='rgb(255,0,0)')
+            fig.show()
+
+        elif vizualizer == 'open3d':
+            try:
+                from src import viz
+            except ImportError:
+                logger.warning('Failed to load open3d, defaulting to HLOC viz')
+
             viz.show(self.reconstruction, str(self.image_path))
         else:
-            fig = viz_3d.init_figure()
+            logger.warning(f"Selected vizualizer is not valid: {vizualizer}")
 
-            # viz_3d.plot_reconstruction(fig, rec, min_track_length=0, color='rgb(0,255,0)')
-            viz_3d.plot_reconstruction(fig, self.rec, min_track_length=0, color='rgb(255,255,255)')
-            fig.show()
 
 
 if __name__ == '__main__':
@@ -197,4 +193,4 @@ if __name__ == '__main__':
     slam = Pipeline()
     slam.load_data(images, output, export_name)
     slam.run()
-    slam.vizualize()
+    slam.vizualize(vizualizer='open3d')
