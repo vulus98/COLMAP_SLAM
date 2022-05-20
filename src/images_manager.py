@@ -65,7 +65,7 @@ class ImagesManager:
         self.corresponds = {}
 
         # Register all images
-        for image_id in tqdm(range(len(frame_names)), "Matching the corresponding images"):
+        for image_id in tqdm(range(len(frame_names)), "Registering the corresponding images"):
             self.register_image(image_id)
 
         self.image_ids = sorted(self.image_ids)
@@ -89,8 +89,6 @@ class ImagesManager:
                                                                                self.used_extractor)
         image = pycolmap.Image(id=image_id, name=str(self.frame_names[image_id]),
                                 camera_id=self.camera.camera_id)
-        # We only register an image if it is contained in the map
-        image.registered = False #TODO: why is this False?
         points2D = [keypoint.pt for keypoint in self.kp_map[image_id]]
         image.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
         self.reconstruction.add_image(image)
@@ -98,11 +96,12 @@ class ImagesManager:
         self.image_ids.append(image_id)
 
         if image_id < self.init_max_num_images:
-            for image_id2 in self.image_ids[max(0, image_id - self.init_max_num_images):image_id]:
+            # for image_id2 in self.image_ids[max(0, image_id - self.init_max_num_images):image_id]:
+            for image_id2 in self.image_ids[0:image_id]:
                 self.add_to_correspondence_graph(image_id, image_id2)
 
     def deregister_image(self, image_id):
-        self.reconstruction.images[image_id].registered = False
+        self.reconstruction.deregister_image(image_id)
 
     def match_images(self, image_id1, image_id2):
         matches = features.matcher(self.descriptor_map[image_id1], self.descriptor_map[image_id2], self.matcher,
