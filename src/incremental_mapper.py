@@ -135,8 +135,6 @@ class IncrementalMapper:
     # an existing reconstruction.
     existing_image_ids_ = None
 
-    # TODO: Add keyframe store
-
     # This function does not seem to get exposed from pycolmap
     def DegToRad(self, deg):
         return deg * np.pi / 180
@@ -422,8 +420,7 @@ class IncrementalMapper:
 
     def OpticalFlowCalculator(self, point_list1, point_list2, inlier_mask, fx, fy):
         # Optical flow to make sure the baseline is big enough
-        flow_constr = sum(abs(np.array(point_list1) - np.array(point_list2))[inlier_mask])
-        flow_constr = flow_constr / sum(inlier_mask)
+        flow_constr = np.median(abs(np.array(point_list1) - np.array(point_list2))[inlier_mask])
         # Just using the one camera assuming we have only one
         f = np.array([fx, fy])
         flow_constr = sum(flow_constr / f)
@@ -476,6 +473,53 @@ class IncrementalMapper:
         image_ids = [image_info["image_id"] for image_info in image_infos]
 
         return image_ids
+
+    # Find next best image to register as keyframe and registers it into the reconstruction
+    def FindAndRegisterNextKeyframe(self, options):
+
+        last_keyframe_id = self.reconstruction_.reg_image_ids()[-1]
+        last_keyframe = self.reconstruction_.images[last_keyframe_id]
+
+        for current_img_id in self.images_manager_.image_ids[last_keyframe_id:]:
+
+            self.images_manager_.add_to_correspondence_graph(last_keyframe_id, current_img_id)
+
+            current_img = self.reconstruction_.images[current_img_id]
+            points_2D_current_img = []
+            points_2D_last_keyframe = []
+            points_3D = []
+            for point2D_idx in range(last_keyframe.num_points2D()):
+                point3D_id = last_keyframe.points2D[point2D_idx].point3D_id
+                if (point3D_id < 18446744073709551615):
+                    for corr in self.graph_.find_correspondences(last_keyframe_id, point2D_idx):
+                        if corr.image_id == current_img_id and self.num_registrations_.get(current_img_id, 0) == 0:
+                            points_3D.append(self.reconstruction_.points3D[point3D_id].xyz)
+                            points_2D_current_img.append(current_img.points2D[corr.point2D_idx].xy)
+                            points_2D_last_keyframe.append(last_keyframe.points2D[point2D_idx].xy)
+
+            answer = pycolmap.absolute_pose_estimation(points_2D_current_img,
+                                                       points_3D,
+                                                       self.reconstruction_.cameras[0], max_error_px=2.0)  # 12.0
+            if (answer['success']):
+                current_img.tvec = answer['tvec']
+                current_img.qvec = answer['qvec']
+
+                camera = self.reconstruction_.cameras[current_img.camera_id]
+
+                self.reconstruction_.register_image(current_img_id)
+                self.RegisterImageEvent(current_img_id)
+
+                min_tri_angle_rad = self.DegToRad(options.init_min_tri_angle)
+                triang_options = pycolmap.IncrementalTriangulatorOptions()
+                triang_options.ignore_two_view_track = False
+                self.triangulator_.triangulate_image(triang_options, current_img_id)
+                # Filter3D points with large reprojection error, negative depth, or
+                # insufficient triangulation angle
+                self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
+
+                return current_img_id, True
+
+        return None, False
 
     # Attempt to seed the reconstruction from an image pair.
     def RegisterInitialImagePair(self, options, image_id1, image_id2):

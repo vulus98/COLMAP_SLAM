@@ -4,13 +4,6 @@ from cv2 import exp
 import pycolmap
 from src import enums, images_manager, incremental_mapper
 from Utility.logger_setup import get_logger
-import numpy as np
-try:
-    from src import viz
-except ImportError as e:
-    print('Failed to load open3d, defaulting to HLOC viz')
-    viz = None
-from hloc.utils import viz_3d
 
 logger = get_logger('pipeline.py')
 
@@ -72,7 +65,7 @@ class Pipeline:
 
 
 
-    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images = 60, frame_skip=20, max_frame=10):
+    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images = 5, frame_skip=30, max_frame=20):
         if images:
             self.image_path = Path(images)
         
@@ -125,16 +118,16 @@ class Pipeline:
         if success:
             logger.info(f"Initializing map with image pair {image_id1} and {image_id2}")
 
-        logger.info(f"Before bundle Adjustment: {self.mapper.reconstruction_.summary()}")
+        logger.info(f"After Map Init, before bundle Adjustment: {self.mapper.reconstruction_.summary()}")
 
 
-        
         self.mapper.AdjustGlobalBundle(self.inc_mapper_options)
         self.mapper.FilterPoints(self.inc_mapper_options)
         self.mapper.FilterImages(self.inc_mapper_options)
+        logger.info(f"After Map Init, after bundle Adjustment, filterpoints and filterimages: {self.mapper.reconstruction_.summary()}")
 
         if self.reconstruction.num_reg_images() == 0 or self.reconstruction.num_points3D() == 0:
-            print("To many points have been filtered out or image(s) not valid")
+            print("Too many points have been filtered out or image(s) not valid")
 
 
         # Not final yet
@@ -144,28 +137,38 @@ class Pipeline:
 
 
         num_images = 2
-        next_image_ids = self.mapper.FindNextImages(self.inc_mapper_options)
-        while len(next_image_ids)>0:
-            i=0
-            while not self.mapper.RegisterNextImage(self.inc_mapper_options, next_image_ids[i]):
-                i+=1
+
+        success_register_keyframe = True
+        iteration_count = 1
+
+        while success_register_keyframe:
+
+            # Iterate through all images until you hit a keyframe and successfully register it.
+            keyframe_id, success_register_keyframe = self.mapper.FindAndRegisterNextKeyframe(self.inc_mapper_options)
+
+            # if not successful, all images have been processed, and this while loop will terminate
+            if not success_register_keyframe:
+                continue
+
+            # Bundle Adjustment
             num_images += 1
             if num_img_last_global_ba * self.ba_global_images_ratio < num_images \
                     and abs(num_images - num_img_last_global_ba) < self.ba_global_images_ratio \
                     and num_points_last_global_ba * self.ba_global_points_ratio < self.reconstruction.num_points3D() \
                     and abs(self.reconstruction.num_points3D() - num_points_last_global_ba) < self.ba_global_points_freq:
-                self.mapper.AdjustLocalBundle(self.inc_mapper_options, None, None, next_image_ids[i], None)
+                self.mapper.AdjustLocalBundle(self.inc_mapper_options, None, None, keyframe_id, None)
             else:
                 self.mapper.AdjustGlobalBundle(self.inc_mapper_options)
                 num_img_last_global_ba = num_images
                 num_points_last_global_ba = self.reconstruction.num_points3D()
-            next_image_ids = self.mapper.FindNextImages(self.inc_mapper_options)
 
-        logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
+            logger.info(f"Iteration {iteration_count} of keyframe selection: {self.reconstruction.summary()}")
+            iteration_count += 1
+        logger.info(f"Final: {self.mapper.reconstruction_.summary()}")
 
 
     def vizualize(self, vizualizer='hloc'): # or vizualizer='open3d'
-        logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
+        # logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
 
         if vizualizer == 'hloc':
             from hloc.utils import viz_3d
@@ -186,11 +189,12 @@ class Pipeline:
 
 if __name__ == '__main__':
 
-    images = Path('./data/rgbd_dataset_freiburg2_xyz/rgb/')
+    images = Path('./data/rgbd_dataset_freiburg1_xyz/rgb/')
     output = Path('./out/test1/')
     export_name = output / 'reconstruction.ply'
 
-    slam = Pipeline()
+    slam = Pipeline(extractor=enums.Extractors.SuperPoint, matcher=enums.Matchers.SuperGlue)
     slam.load_data(images, output, export_name)
     slam.run()
     slam.vizualize(vizualizer='hloc')
+

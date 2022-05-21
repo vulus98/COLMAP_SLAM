@@ -90,7 +90,7 @@ class ImagesManager:
         image = pycolmap.Image(id=image_id, name=str(self.frame_names[image_id]),
                                 camera_id=self.camera.camera_id)
         # We only register an image if it is contained in the map
-        image.registered = False #TODO: why is this False?
+        image.registered = False
         points2D = [keypoint.pt for keypoint in self.kp_map[image_id]]
         image.points2D = pycolmap.ListPoint2D([pycolmap.Point2D(p) for p in points2D])
         self.reconstruction.add_image(image)
