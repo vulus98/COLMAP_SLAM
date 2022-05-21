@@ -144,27 +144,37 @@ class Pipeline:
         print(self.reconstruction.num_points3D())
 
         num_images = 2
-        next_image_ids = self.mapper.FindNextImages(self.inc_mapper_options)
-        while len(next_image_ids) > 0:
-            i = 0
-            while not self.mapper.RegisterNextImage(self.inc_mapper_options, next_image_ids[i]):
-                i += 1
+
+        success_register_keyframe = True
+        iteration_count = 1
+
+        while success_register_keyframe:
+
+            # Iterate through all images until you hit a keyframe and successfully register it.
+            keyframe_id, success_register_keyframe = self.mapper.FindAndRegisterNextKeyframe(self.inc_mapper_options)
+
+            # if not successful, all images have been processed, and this while loop will terminate
+            if not success_register_keyframe:
+                continue
+
+            # Bundle Adjustment
             num_images += 1
             if num_img_last_global_ba * self.ba_global_images_ratio < num_images \
                     and abs(num_images - num_img_last_global_ba) < self.ba_global_images_ratio \
                     and num_points_last_global_ba * self.ba_global_points_ratio < self.reconstruction.num_points3D() \
                     and abs(self.reconstruction.num_points3D() - num_points_last_global_ba) < self.ba_global_points_freq:
-                self.mapper.AdjustLocalBundle(self.inc_mapper_options, None, None, next_image_ids[i], None)
+                self.mapper.AdjustLocalBundle(self.inc_mapper_options, None, None, keyframe_id, None)
             else:
                 self.mapper.AdjustGlobalBundle(self.inc_mapper_options)
                 num_img_last_global_ba = num_images
                 num_points_last_global_ba = self.reconstruction.num_points3D()
-            next_image_ids = self.mapper.FindNextImages(self.inc_mapper_options)
 
-        logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
+            logger.info(f"Iteration {iteration_count} of keyframe selection: {self.reconstruction.summary()}")
+            iteration_count += 1
+        logger.info(f"Final: {self.mapper.reconstruction_.summary()}")
 
-    def vizualize(self, vizualizer='hloc'):  # or vizualizer='open3d'
-        logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
+    def vizualize(self, vizualizer='hloc'): # or vizualizer='open3d'
+        # logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
 
         if vizualizer == 'hloc':
             from hloc.utils import viz_3d
@@ -184,15 +194,17 @@ class Pipeline:
 
 
 if __name__ == '__main__':
-    images = Path('./data/rgbd_dataset_freiburg2_xyz/rgb/')
+
+    images = Path('./data/kitti/frames/')
     output = Path('./out/test1/')
     export_name = output / 'reconstruction.ply'
 
-    init_max_num_images = 20
+    init_max_num_images = 5
     frame_skip = 1
-    max_frame = 200
+    max_frame = 20
     slam = Pipeline()
     slam.load_data(images, output, export_name, init_max_num_images=init_max_num_images, frame_skip=frame_skip,
                    max_frame=max_frame)
     slam.run()
-    slam.vizualize(vizualizer='open3d')
+    slam.vizualize(vizualizer='hloc')
+
