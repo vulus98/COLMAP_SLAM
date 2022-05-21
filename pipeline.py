@@ -65,7 +65,9 @@ class Pipeline:
 
 
 
+
     def load_data(self, images=None, outputs=None, exports=None, init_max_num_images = 5, frame_skip=30, max_frame=20):
+
         if images:
             self.image_path = Path(images)
         
@@ -165,7 +167,6 @@ class Pipeline:
             logger.info(f"Iteration {iteration_count} of keyframe selection: {self.reconstruction.summary()}")
             iteration_count += 1
         logger.info(f"Final: {self.mapper.reconstruction_.summary()}")
-
 
     def vizualize(self, vizualizer='hloc'): # or vizualizer='open3d'
         # logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
