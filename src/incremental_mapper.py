@@ -506,6 +506,12 @@ class IncrementalMapper:
 
                 camera = self.reconstruction_.cameras[current_img.camera_id]
 
+                # Condition 1: Reject image if optical flow constraint is not satisfied
+                flow_constr = self.OpticalFlowCalculator(points_2D_current_img, points_2D_last_keyframe, answer["inliers"], camera.focal_length_x,
+                                                         camera.focal_length_y)
+                if flow_constr < 0.05:
+                    continue
+
                 self.reconstruction_.register_image(current_img_id)
                 self.RegisterImageEvent(current_img_id)
 
@@ -516,6 +522,13 @@ class IncrementalMapper:
                 # Filter3D points with large reprojection error, negative depth, or
                 # insufficient triangulation angle
                 self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
+
+
+                # Condition 2: Reject registered image if it does not track sufficient points
+                if current_img.num_points3D() < 50:
+                    self.reconstruction_.deregister_image(current_img_id)
+                    # self.DeRegisterImageEvent(current_img_id) # TODO: Fix error at this line
+                    continue
 
                 return current_img_id, True
 
