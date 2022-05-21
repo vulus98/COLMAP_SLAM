@@ -7,13 +7,14 @@ from Utility.logger_setup import get_logger
 
 logger = get_logger('pipeline.py')
 
+
 class Pipeline:
 
     def __init__(self,
-                extractor=enums.Extractors(1), 
-                matcher=enums.Matchers(1), 
-                selector=enums.ImageSelectionMethod(1)):
-        
+                 extractor=enums.Extractors(1),
+                 matcher=enums.Matchers(1),
+                 selector=enums.ImageSelectionMethod(1)):
+
         # Default camera
         self.camera = pycolmap.Camera(
             model='PINHOLE',
@@ -27,7 +28,7 @@ class Pipeline:
         self.reset()
         self.mapper = incremental_mapper.IncrementalMapper()
         self.inc_mapper_options = incremental_mapper.IncrementalMapperOptions()
-        
+
         # Bundle adjustment properties
         self.ba_global_images_ratio = 1.1
         self.ba_global_points_ratio = 1.1
@@ -43,17 +44,15 @@ class Pipeline:
         self.output_path = ""
         self.export_name = ""
 
-
     def reset(self):
         self.reconstruction = pycolmap.Reconstruction()
         self.reconstruction.add_camera(self.camera)
         self.graph = pycolmap.CorrespondenceGraph()
 
-
     def set_ba_properties(self, image_ratio=None, point_ratio=None, image_freq=None, point_freq=None):
         if image_ratio:
             self.ba_global_images_ratio = image_ratio
-        
+
         if point_ratio:
             self.ba_global_points_ratio = point_ratio
 
@@ -63,14 +62,10 @@ class Pipeline:
         if point_freq:
             self.ba_global_points_freq = point_freq
 
-
-
-
-    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images = 5, frame_skip=30, max_frame=20):
-
+    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images=60, frame_skip=20, max_frame=10):
         if images:
             self.image_path = Path(images)
-        
+
         if outputs:
             self.output_path = Path(outputs)
 
@@ -82,16 +77,21 @@ class Pipeline:
         if self.image_path:
             self.frame_names = os.listdir(self.image_path)
             self.frame_names.sort()
-            self.frame_names = self.frame_names[::frame_skip]
+            # Do not skip any frmaes if set to negative
+            if frame_skip > 0:
+                self.frame_names = self.frame_names[::frame_skip]
+            # Use all available frames if negative
+            if max_frame == -1:
+                max_frame = len(self.frame_names)
             self.frame_names = self.frame_names[:min(len(self.frame_names), max_frame)]
 
-        self.img_manager = images_manager.ImagesManager(self.image_path, 
-                                                        self.frame_names, 
-                                                        self.reconstruction, 
-                                                        self.graph, 
-                                                        self.camera, 
-                                                        init_max_num_images, 
-                                                        self.extractor, 
+        self.img_manager = images_manager.ImagesManager(self.image_path,
+                                                        self.frame_names,
+                                                        self.reconstruction,
+                                                        self.graph,
+                                                        self.camera,
+                                                        init_max_num_images,
+                                                        self.extractor,
                                                         self.matcher)
 
         if not self.image_path:
@@ -99,44 +99,49 @@ class Pipeline:
 
         self.inc_mapper_options.init_max_num_images = init_max_num_images
 
-            
-    def run(self):
+    def run(self, image_id1=-1, image_id2=-1, init_max_trials=10):
         if not self.img_manager:
             logger.error("Load images first!")
             return
 
         self.mapper.BeginReconstruction(self.reconstruction, self.graph, self.img_manager)
 
-        # Tries to find a good initial image pair
-        success, image_id1, image_id2 = self.mapper.FindInitialImagePair(self.inc_mapper_options, -1, -1)
-        if not success:
-            logger.warning("No good initial image pair found")
-            exit(1)
-        reg_init_success = self.mapper.RegisterInitialImagePair(self.inc_mapper_options, image_id1, image_id2)
-        if not reg_init_success:
-            logger.warning("No registration for initial image pair")
-            exit(1)
+        for i in range(init_max_trials):
+            # Tries to find a good initial image pair
+            success, image_id1, image_id2 = self.mapper.FindInitialImagePair(self.inc_mapper_options, image_id1, image_id2)
+            if not success:
+                logger.warning("No good initial image pair found")
+                exit(1)
+            reg_init_success = self.mapper.RegisterInitialImagePair(self.inc_mapper_options, image_id1, image_id2)
+            if not reg_init_success:
+                logger.warning("No registration for initial image pair")
+                exit(1)
 
-        if success:
-            logger.info(f"Initializing map with image pair {image_id1} and {image_id2}")
+            if success:
+                logger.info(f"Initializing map with image pair {image_id1} and {image_id2}")
 
-        logger.info(f"After Map Init, before bundle Adjustment: {self.mapper.reconstruction_.summary()}")
+            logger.info(f"Before bundle Adjustment: {self.mapper.reconstruction_.summary()}")
 
+            if self.reconstruction.num_reg_images() == 0 or self.reconstruction.num_points3D() < 150:
+                print("Not enough 3D points found after triangulation!")
+                self.mapper.ClearReconstruction()
+            else:
+                self.mapper.AdjustGlobalBundle(self.inc_mapper_options)
+                self.mapper.FilterPoints(self.inc_mapper_options)
+                self.mapper.FilterImages(self.inc_mapper_options)
 
-        self.mapper.AdjustGlobalBundle(self.inc_mapper_options)
-        self.mapper.FilterPoints(self.inc_mapper_options)
-        self.mapper.FilterImages(self.inc_mapper_options)
-        logger.info(f"After Map Init, after bundle Adjustment, filterpoints and filterimages: {self.mapper.reconstruction_.summary()}")
+                if self.reconstruction.num_reg_images() == 0 or self.reconstruction.num_points3D() < 130:
+                    print("To many points have been filtered out or image(s) not valid")
+                    self.mapper.ClearReconstruction()
+                else:
+                    break
 
-        if self.reconstruction.num_reg_images() == 0 or self.reconstruction.num_points3D() == 0:
-            print("Too many points have been filtered out or image(s) not valid")
-
+        logger.info(f"After Map initialization: {self.mapper.reconstruction_.summary()}")
 
         # Not final yet
         num_img_last_global_ba = 2
         num_points_last_global_ba = self.reconstruction.num_points3D()
         print(self.reconstruction.num_points3D())
-
 
         num_images = 2
 
@@ -190,12 +195,16 @@ class Pipeline:
 
 if __name__ == '__main__':
 
-    images = Path('./data/rgbd_dataset_freiburg1_xyz/rgb/')
+    images = Path('./data/kitti/frames/')
     output = Path('./out/test1/')
     export_name = output / 'reconstruction.ply'
 
-    slam = Pipeline(extractor=enums.Extractors.SuperPoint, matcher=enums.Matchers.SuperGlue)
-    slam.load_data(images, output, export_name)
+    init_max_num_images = 5
+    frame_skip = 1
+    max_frame = 20
+    slam = Pipeline()
+    slam.load_data(images, output, export_name, init_max_num_images=init_max_num_images, frame_skip=frame_skip,
+                   max_frame=max_frame)
     slam.run()
     slam.vizualize(vizualizer='hloc')
 

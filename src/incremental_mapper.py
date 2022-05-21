@@ -269,7 +269,7 @@ class IncrementalMapper:
 
     def DeRegisterImageEvent(self, image_id):
         image = self.reconstruction_.images[image_id]
-        num_reg_images_for_camera = self.num_reg_images_per_camera_.get(image.CameraId(), 0)
+        num_reg_images_for_camera = self.num_reg_images_per_camera_.get(image.camera_id, 0)
 
         if num_reg_images_for_camera > 0:
             num_reg_images_for_camera -= 1
@@ -376,6 +376,16 @@ class IncrementalMapper:
             self.reconstruction_ = None
             self.triangulator_ = None
 
+    # Clears the done triangulation steps and all the associated 3D points
+    # Should be called after failed initialization of the map
+    def ClearReconstruction(self):
+        if self.reconstruction_ is None:
+            logger.warning("Calling EndReconstruction on an empty reconstruction!")
+        else:
+            for img_ids in self.reconstruction_.reg_image_ids():
+                self.DeRegisterImageEvent(img_ids)
+
+
     # Find initial image pair to seed the incremental reconstruction. The image
     # pairs should be passed to `RegisterInitialImagePair`. This function
     # automatically ignores image pairs that failed to register previously.
@@ -439,7 +449,7 @@ class IncrementalMapper:
                         last_reg_images[-1]:min(last_reg_images[-1] + 3, self.images_manager_.image_ids[-1] + 1)]
         for image_id in last_reg_images:
 
-            # Matcches the current image (image_id) with all images in valid_img_ids to fill the correspondence graph
+            # Matches the current image (image_id) with all images in valid_img_ids to fill the correspondence graph
             for other_img_id in valid_img_ids:
                 self.images_manager_.add_to_correspondence_graph(image_id, other_img_id)
 
@@ -644,9 +654,10 @@ class IncrementalMapper:
             self.reconstruction_.register_image(query_img_id)
             self.RegisterImageEvent(query_img_id)
 
+            # TODO: options.init_min_tri_angle is the triangulation angle for the first pair and should be changed to
+            # triagulation angle for keyframing
             min_tri_angle_rad = self.DegToRad(options.init_min_tri_angle)
             triang_options = pycolmap.IncrementalTriangulatorOptions()
-            triang_options.ignore_two_view_track = False
             self.triangulator_.triangulate_image(triang_options, query_img_id)
             # Filter3D points with large reprojection error, negative depth, or
             # insufficient triangulation angle
