@@ -14,7 +14,7 @@ class VideoWindow:
         self.rgb_images = []    
 
         self.window = gui.Application.instance.create_window(
-            "Keyframes and live video", 1300, 500)
+            "Keyframes and live video", 1600, 600)
         self.window.set_on_layout(self._on_layout)
         self.window.set_on_close(self._on_close)
 
@@ -47,6 +47,10 @@ class VideoWindow:
         _frame_delay.double_value = self.frame_delay
         _frame_delay.set_on_value_changed(self._on_frame_delay)
         settings_panel.add_child(_frame_delay)
+
+        settings_panel.add_child(gui.Label("Output:"))
+        self.out_label = gui.Label("")
+        settings_panel.add_child(self.out_label)
 
         self.panel.add_child(kf_panel)
         self.panel.add_child(f_panel)

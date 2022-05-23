@@ -10,7 +10,8 @@ import os
 from pathlib import Path
 from vid import VideoWindow
 import cv2
-from PIL import Image
+import matplotlib.cm as cm
+# from PIL import Image
 
 
 '''
@@ -44,6 +45,7 @@ class AppWindow:
         self.output_path = "./out/test1"
         self.export_name = "reconstruction.ply"
         self.frames = []
+        self.init_frames = 20
 
         try:
             self.raw_img_count = len(os.listdir(data_path))
@@ -62,6 +64,7 @@ class AppWindow:
         self.start_img = 0
         self.end_img = 0
         self.last_keyframe = 0
+        self.current_frame = 0
         
         # default material
         self.mat = o3d.visualization.rendering.MaterialRecord()
@@ -122,6 +125,13 @@ class AppWindow:
         self._frame_final.set_on_value_changed(self._on_frame_final)
         self._settings_panel.add_child(self._frame_final)
 
+        self._settings_panel.add_child(gui.Label("Max frames for initialization"))
+        _init_frames = gui.Slider(gui.Slider.INT)
+        _init_frames.set_limits(0, 60)
+        _init_frames.int_value = self.init_frames
+        _init_frames.set_on_value_changed(self._on_init_frames)
+        self._settings_panel.add_child(_init_frames)
+
 
         # Next basic reconstruction settings
         self._settings_panel.add_child(gui.Label("Reconstruction Settings"))
@@ -146,14 +156,6 @@ class AppWindow:
         self._settings_panel.add_child(_matcher)
 
 
-        _selector = gui.Combobox()
-        for name, _ in enums.ImageSelectionMethod.__members__.items():
-            _selector.add_item(name)
-
-        _selector.set_on_selection_changed(self._on_selector)
-        self._settings_panel.add_fixed(separation_height)
-        self._settings_panel.add_child(gui.Label("Image Selector"))
-        self._settings_panel.add_child(_selector)
 
         # Maybe add a frame rate thing? how many frames we want to process
 
@@ -250,6 +252,8 @@ class AppWindow:
         self._frame_final.int_value = self.raw_img_count // self.frame_skip
         self._frame_final.set_limits(0, self.raw_img_count // self.frame_skip)
         
+    def _on_init_frames(self, val):
+        self.init_frames = int(val)
 
     def _on_layout(self, layout_context):
         # The on_layout callback should set the frame (position + size) of every
@@ -265,10 +269,6 @@ class AppWindow:
     def _on_extractor(self, name, idx):
         print(f"now using {name}")
         self.extractor = enums.Extractors(idx+1)
-
-    def _on_selector(self, name, idx):
-        print(f"now using {name}")
-        self.selector = enums.ImageSelectionMethod(idx+1)
 
     def _on_matcher(self, name, idx):
         print(f"now using {name}")
@@ -430,7 +430,7 @@ class AppWindow:
         
         self.rec.reset()
         self.is_setup = False
-        self.rec.load_data(self.image_path, self.output_path, self.export_name, init_max_num_images=20, frame_skip=int(self.frame_skip), max_frame=int(self.frame_final))
+        self.rec.load_data(self.image_path, self.output_path, self.export_name, init_max_num_images=int(self.init_frames), frame_skip=int(self.frame_skip), max_frame=int(self.frame_final))
 
         self.frames = []
         self.imgs = []
@@ -503,16 +503,28 @@ class AppWindow:
         
         img = self.frames[self.last_keyframe]
         # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).copy()
+        
 
         for p in self.rec.reconstruction.images[self.last_keyframe].get_valid_points2D():
             if p.point3D_id >= 18446744073709551614:  # Invalid 3d point
                 continue
-            img = cv2.circle(img, p.xy.astype(np.uint16), 3, (255,0,0))
+            img = cv2.circle(img, p.xy.astype(np.uint16), 3, 255*np.array(cm.gist_ncar(p.point3D_id/self.pt_count)[:2]))
 
         self.last_keyframe_img = o3d.geometry.Image(img.astype(np.uint8))
 
         # self.vid.kf_widget.update_image(self.last_keyframe_img)
-        self.vid.kf_label.text = f'Last Key Frame: {self.last_keyframe}'
+
+    def update_frames(self):
+        self.vid.kf_widget.update_image(self.last_keyframe_img)
+        
+
+        if self.current_frame == self.last_keyframe:
+            self.update_keyframe()
+            self.vid.f_widget.update_image(self.last_keyframe_img)
+        else:
+            self.vid.f_widget.update_image(self.imgs[self.current_frame])
+            self.vid.kf_label.text = f'Last Key Frame: {self.last_keyframe}'
+        self.vid.f_label.text = f'Current Frame: {self.current_frame}'
 
 
     # Callback to run when each keyframe is registered
@@ -532,27 +544,37 @@ class AppWindow:
 
 
         i=self.last_keyframe
+
+        self.update_keyframe()
         self.last_keyframe = keyframe_id
+
 
         while i <= keyframe_id:
             # print(f"at frame {i} next keyframe is {keyframe_id}")
-            def update_frame():
-                self.vid.f_widget.update_image(self.imgs[i])
-                self.vid.f_label.text = f'Current Frame: {i}'
-                self.vid.kf_widget.update_image(self.last_keyframe_img)
-                
-            if i == keyframe_id:
-                self.update_keyframe()
-
-            gui.Application.instance.post_to_main_thread(self.vid.window, update_frame)
+            self.current_frame = i
+            
+            # if i == keyframe_id:
+            #     self.update_keyframe()
+    
+            if len(self.imgs)>i:
+                gui.Application.instance.post_to_main_thread(self.vid.window, self.update_frames)
+    
             sleep(self.vid.frame_delay)
             i+=1
 
         gui.Application.instance.post_to_main_thread(self.window, self.refresh)
+        gui.Application.instance.post_to_main_thread(self.vid.window, self.update_output)
 
+
+
+    def update_output(self):
+        # do any formatting you want here
+        out = self.rec.reconstruction.summary()
+
+        self.vid.out_label.text = out
 
     def reconstruct(self):
-        print(f"Running on data at {self.image_path} with {self.extractor.name}, {self.matcher.name} and {self.selector.name}...")
+        print(f"Running on data at {self.image_path} with {self.extractor.name} and {self.matcher.name}...")
 
         self._scene.scene.clear_geometry()
 
