@@ -1,3 +1,5 @@
+import threading
+from time import sleep
 from pipeline import Pipeline
 import numpy as np
 import open3d as o3d
@@ -5,6 +7,12 @@ import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 from src import enums, viz
 import os
+from pathlib import Path
+from vid import VideoWindow
+import cv2
+from PIL import Image
+
+
 '''
 For WSL need to install mesaos
     
@@ -28,13 +36,14 @@ class AppWindow:
         # Default config stuff
         self.img_count = 0
         self.pt_count = -1
-        self.frame_skip = 20
+        self.frame_skip = 2
         self.extractor = enums.Extractors(1)
         self.matcher = enums.Matchers(1)
         self.selector = enums.ImageSelectionMethod(1)
         self.image_path = data_path
         self.output_path = "./out/test1"
         self.export_name = "reconstruction.ply"
+        self.frames = []
 
         try:
             self.raw_img_count = len(os.listdir(data_path))
@@ -52,6 +61,7 @@ class AppWindow:
         self.is_setup = False
         self.start_img = 0
         self.end_img = 0
+        self.last_keyframe = 0
         
         # default material
         self.mat = o3d.visualization.rendering.MaterialRecord()
@@ -62,27 +72,28 @@ class AppWindow:
         self.mat.point_size = 10 * self.window.scaling
 
         w = self.window 
+        self.vid = VideoWindow()
+        
+        em = w.theme.font_size
+        separation_height = int(round(0.5 * em))
 
-        # Reconstruction widget
+        # Reconstruction 3d widget
         self._scene = gui.SceneWidget()
         self._scene.scene = rendering.Open3DScene(w.renderer)
         self._scene.set_view_controls(gui.SceneWidget.Controls.FLY)
 
-        em = w.theme.font_size
-        separation_height = int(round(0.5 * em))
 
         # Create the settings panel on the right
-
         self._settings_panel = gui.Vert(0, gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
 
         # File path setting
 
         _data_loading = gui.Horiz(0,  gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
         self._settings_panel.add_child(gui.Label("Data Settings"))
-        self._data_path = gui.Label(f"Data: {self.image_path}")
+        self._data_path = gui.Label(f"Data Path:\n {self.image_path}")
         self._settings_panel.add_child(self._data_path)
 
-        self._out_path = gui.Label(f"Out: {self.output_path}")
+        self._out_path = gui.Label(f"Output Path:\n {self.output_path}")
         self._settings_panel.add_child(self._out_path)
 
         self._settings_panel.add_child(gui.Label("Edit Path"))
@@ -99,7 +110,7 @@ class AppWindow:
         
         self._settings_panel.add_child(gui.Label("Number of frames to skip"))
         _frame_skip = gui.Slider(gui.Slider.INT)
-        _frame_skip.set_limits(0, 30)
+        _frame_skip.set_limits(1, 30)
         _frame_skip.int_value = self.frame_skip
         _frame_skip.set_on_value_changed(self._on_frame_skip)
         self._settings_panel.add_child(_frame_skip)
@@ -231,7 +242,6 @@ class AppWindow:
         w.add_child(self._settings_panel)
 
     # Whole bunch of on event listeners for setting changes above
-
     def _on_frame_final(self, val):
         self.frame_final = int(val)
 
@@ -248,12 +258,9 @@ class AppWindow:
         r = self.window.content_rect
         self._scene.frame = r
         width = 17 * layout_context.theme.font_size
-        height = min(
-            r.height,
-            self._settings_panel.calc_preferred_size(
-                layout_context, gui.Widget.Constraints()).height)
-        self._settings_panel.frame = gui.Rect(r.get_right() - width, r.y, width,
-                                              height)
+        height = min(r.height, self._settings_panel.calc_preferred_size(layout_context, gui.Widget.Constraints()).height)
+        
+        self._settings_panel.frame = gui.Rect(r.get_right() - width, r.y, width, height)
 
     def _on_extractor(self, name, idx):
         print(f"now using {name}")
@@ -276,9 +283,20 @@ class AppWindow:
 
             path = viz.generate_path(self.rec.reconstruction)
             print(path)
-            print(path.points)
-            print(path.lines)
             if len(path.points) > 0:
+                
+                true_path = viz.generate_true_path(self.rec.image_path.parent / 'groundtruth.txt')
+
+                scale1 = np.linalg.norm(path.get_max_bound() - path.get_min_bound())
+                scale2 = np.linalg.norm(true_path.get_max_bound() - true_path.get_min_bound())
+
+                true_path.translate(path.get_center(), False)
+
+                # true_path.scale(scale2/scale1, path.get_center())
+
+                if not self._scene.scene.has_geometry("__true_path__"):
+                    self._scene.scene.add_geometry("__true_path__", true_path, self.mat)
+
 
                 self._scene.scene.add_geometry("__path__", path, self.mat)
 
@@ -322,7 +340,6 @@ class AppWindow:
         self._on_show_path(self.show_path)
         self._on_show_tracks(self.show_track)
 
-
     def _on_end_img(self, val):
         self.end_img = val
         self._start_img.set_limits(0,val)
@@ -345,7 +362,6 @@ class AppWindow:
 
 
 
-    # Can remove these, may want to keep the file opener for the settings...
 
     def _on_data_open(self):
         dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose root folder of image data",
@@ -374,6 +390,7 @@ class AppWindow:
 
         try:
             self.raw_img_count = len(os.listdir(filename))
+
         except:
             print("Error opening path")
             self.raw_img_count = 0
@@ -412,9 +429,30 @@ class AppWindow:
         print("Checking settings....")
         
         self.rec.reset()
-        self.rec.load_data(self.image_path, self.output_path, self.export_name, init_max_num_images=60, frame_skip=int(self.frame_skip), max_frame=int(self.frame_final))
+        self.is_setup = False
+        self.rec.load_data(self.image_path, self.output_path, self.export_name, init_max_num_images=20, frame_skip=int(self.frame_skip), max_frame=int(self.frame_final))
 
-        self.reconstruct()
+        self.frames = []
+        self.imgs = []
+        self.last_keyframe = 0 
+
+
+        for frame in self.rec.frame_names:
+            # cv2.cvtColor(self.frames[self.last_keyframe], cv2.COLOR_BGR2RGB)
+            img = cv2.imread(os.path.join(self.image_path, frame))
+            # img = cv2.cvtColor(bgrimg, cv2.COLOR_BGR2RGB).copy()
+
+
+            # img = Image.open(os.path.join(self.image_path, frame))
+
+            self.frames.append(img)
+            self.imgs.append(o3d.io.read_image(os.path.join(self.image_path, frame)))
+
+        self.update_keyframe()
+
+
+        threading.Thread(target=self.reconstruct).start()
+        # self.reconstruct()
 
 
     def export_image(self, path, width, height):
@@ -436,41 +474,95 @@ class AppWindow:
         pts = viz.generate_pts(self.rec.reconstruction, self.rec.image_path, lambda pt: len([e for e in pt.track.elements if e.image_id > self.start_img and e.image_id < self.end_img ]) > 0)
         self._scene.scene.add_geometry("__recon__", pts, self.mat)
 
-        return pts
 
+    def refresh(self):
 
-    def reconstruct(self):
-        print(f"Running on data at {self.image_path} with {self.extractor.name}, {self.matcher.name} and {self.selector.name}...")
-
-        self.rec.run()
         self.img_count = max(self.rec.reconstruction.images)
         self.pt_count = len(self.rec.reconstruction.points3D)
         self.end_img  = self.img_count
 
-        print(self.rec.reconstruction.images.keys())
-        print(self.rec.reconstruction.reg_image_ids())
-        
+
         self._start_img.set_limits(0,self.img_count)
         self._end_img.set_limits(0,self.img_count)
         self._end_img.int_value = self.img_count
         self._camera_tracks.set_limits(-1, self.pt_count)
 
-        self._scene.scene.clear_geometry()
-
+        
         self._on_show_cams(self.show_cam)
         self._on_show_path(self.show_path)
         self._on_show_tracks(self.show_track)
 
-        pts = self.update_pts()
-
+        self.update_pts()
+        
         if not self.is_setup:
             self.is_setup = True
             
-            pt_bounds = pts.get_axis_aligned_bounding_box()
-            cam_bounds = viz.generate_cams(self.rec.reconstruction,5).get_oriented_bounding_box()
-            self._scene.setup_camera(60, pt_bounds, pt_bounds.get_center())
+            self._reset_view()
 
-            self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,1])@cam_bounds.R)
+    def update_keyframe(self):
+        
+        img = self.frames[self.last_keyframe]
+        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).copy()
+
+        for p in self.rec.reconstruction.images[self.last_keyframe].get_valid_points2D():
+            if p.point3D_id >= 18446744073709551614:  # Invalid 3d point
+                continue
+            img = cv2.circle(img, p.xy.astype(np.uint16), 3, (255,0,0))
+
+        self.last_keyframe_img = o3d.geometry.Image(img.astype(np.uint8))
+
+        # self.vid.kf_widget.update_image(self.last_keyframe_img)
+        self.vid.kf_label.text = f'Last Key Frame: {self.last_keyframe}'
+
+
+    # Callback to run when each keyframe is registered
+    def process_frame(self, keyframe_id):
+        print(f"Next keyframe: {keyframe_id}, rec has {len(self.rec.reconstruction.points3D)}")
+        self.pt_count = len(self.rec.reconstruction.points3D)
+        self._end_img.set_limits(0,self.img_count)
+
+        if not self.vid:
+            print("ERROR: no video window init")
+            return 0
+
+        if not self.last_keyframe_img:
+            print('*** NO KEY FRAME SAVED')
+            self.update_keyframe()
+            print(self.last_keyframe_img)
+
+
+        i=self.last_keyframe
+        self.last_keyframe = keyframe_id
+
+        while i <= keyframe_id:
+            # print(f"at frame {i} next keyframe is {keyframe_id}")
+            def update_frame():
+                self.vid.f_widget.update_image(self.imgs[i])
+                self.vid.f_label.text = f'Current Frame: {i}'
+                self.vid.kf_widget.update_image(self.last_keyframe_img)
+                
+            if i == keyframe_id:
+                self.update_keyframe()
+
+            gui.Application.instance.post_to_main_thread(self.vid.window, update_frame)
+            sleep(self.vid.frame_delay)
+            i+=1
+
+        gui.Application.instance.post_to_main_thread(self.window, self.refresh)
+
+
+    def reconstruct(self):
+        print(f"Running on data at {self.image_path} with {self.extractor.name}, {self.matcher.name} and {self.selector.name}...")
+
+        self._scene.scene.clear_geometry()
+
+        self.rec.run(per_frame_callback=self.process_frame)
+
+        print(self.rec.reconstruction.images.keys())
+        print(self.rec.reconstruction.reg_image_ids())
+
+        self.refresh()
+
             
 
 def main():

@@ -51,6 +51,36 @@ def generate_pts(rec, path=None, filter = lambda x: True):
 
     return pcd
 
+def generate_true_path(file_path, max_line=1000):
+    path = o3d.geometry.LineSet()
+    pts = []
+    lns = []
+    colors = []
+    i=-1
+    idx=0
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+        max_val = min(len(lines), max_line)
+        for line in lines:
+            idx+=1
+            if idx % 10 == 0 and idx<max_line:
+                i+=1
+                data = [float(val) for val in line.split(" ")]
+                pts += [data[1:4]]
+                colors += [[0,1-idx/max_val,idx/max_val]]
+                
+                lns += [[i,i+1]]
+
+    lns[-1] = [i,i]
+
+    path.points = o3d.utility.Vector3dVector(pts)
+    path.lines = o3d.utility.Vector2iVector(lns)
+    path.colors = o3d.utility.Vector3dVector(colors)
+
+    return path
+
+
+
 def generate_path(rec, filter = lambda x: True):
     i = -1
 

@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from time import sleep
 from cv2 import exp
 import pycolmap
 from src import enums, images_manager, incremental_mapper
@@ -62,7 +63,7 @@ class Pipeline:
         if point_freq:
             self.ba_global_points_freq = point_freq
 
-    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images=60, frame_skip=20, max_frame=10):
+    def load_data(self, images=None, outputs=None, exports=None, init_max_num_images=30, frame_skip=20, max_frame=10):
         if images:
             self.image_path = Path(images)
 
@@ -99,7 +100,7 @@ class Pipeline:
 
         self.inc_mapper_options.init_max_num_images = init_max_num_images
 
-    def run(self, image_id1=-1, image_id2=-1, init_max_trials=10):
+    def run(self, image_id1=-1, image_id2=-1, init_max_trials=10, per_frame_callback=None):
         if not self.img_manager:
             logger.error("Load images first!")
             return
@@ -143,6 +144,11 @@ class Pipeline:
         num_points_last_global_ba = self.reconstruction.num_points3D()
         print(self.reconstruction.num_points3D())
 
+        if per_frame_callback:
+            # Adds the initialziation 
+            per_frame_callback(max(image_id1, image_id2))
+            print("added init frame")
+
         num_images = 2
 
         success_register_keyframe = True
@@ -156,6 +162,10 @@ class Pipeline:
             # if not successful, all images have been processed, and this while loop will terminate
             if not success_register_keyframe:
                 continue
+
+            # Trigger the callback with the new keyframe id
+            if per_frame_callback:
+                per_frame_callback(keyframe_id)
 
             # Bundle Adjustment
             num_images += 1
@@ -191,7 +201,20 @@ class Pipeline:
             viz.show(self.reconstruction, str(self.image_path))
         else:
             logger.warning(f"Selected vizualizer is not valid: {vizualizer}")
+            
+    def default_run(self):
+        images = Path('./data/kitti/frames/')
+        output = Path('./out/test1/')
+        export_name = output / 'reconstruction.ply'
 
+        init_max_num_images = 5
+        frame_skip = 1
+        max_frame = 20
+        
+        self.load_data(images, output, export_name, init_max_num_images=init_max_num_images, frame_skip=frame_skip,
+                    max_frame=max_frame)
+        self.run()
+    
 
 if __name__ == '__main__':
 
