@@ -83,7 +83,7 @@ class AppWindow:
         # Reconstruction 3d widget
         self._scene = gui.SceneWidget()
         self._scene.scene = rendering.Open3DScene(w.renderer)
-        self._scene.set_view_controls(gui.SceneWidget.Controls.FLY)
+        self._scene.set_view_controls(gui.SceneWidget.Controls.ROTATE_CAMERA)
 
 
         # Create the settings panel on the right
