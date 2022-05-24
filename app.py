@@ -430,6 +430,10 @@ class AppWindow:
         
         self.rec.reset()
         self.is_setup = False
+        self.rec.extractor = self.extractor
+        self.rec.matcher = self.matcher
+        self.rec.selector = self.selector
+
         self.rec.load_data(self.image_path, self.output_path, self.export_name, init_max_num_images=int(self.init_frames), frame_skip=int(self.frame_skip), max_frame=int(self.frame_final))
 
         self.frames = []
