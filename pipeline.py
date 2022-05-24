@@ -26,7 +26,6 @@ class Pipeline:
         self.camera.camera_id = 0
 
         # pycolmap properties
-        self.reset()
         self.mapper = incremental_mapper.IncrementalMapper()
         self.inc_mapper_options = incremental_mapper.IncrementalMapperOptions()
 
@@ -45,8 +44,10 @@ class Pipeline:
         self.output_path = ""
         self.export_name = ""
 
-        self.reconstruction = None
-        self.graph = None
+        # Initializing the basic sructures
+        self.reconstruction = pycolmap.Reconstruction()
+        self.reconstruction.add_camera(self.camera)
+        self.graph = pycolmap.CorrespondenceGraph()
         self.img_manager = None
 
     def reset(self):
@@ -169,7 +170,6 @@ class Pipeline:
         iteration_count = 1
 
         while success_register_keyframe:
-
             # Iterate through all images until you hit a keyframe and successfully register it.
             keyframe_id, success_register_keyframe = self.mapper.FindAndRegisterNextKeyframe(self.inc_mapper_options)
 
@@ -181,10 +181,10 @@ class Pipeline:
             if per_frame_callback:
                 per_frame_callback(keyframe_id)
 
-            # Bundle Adjustment
             num_images += 1
-            if num_img_last_global_ba * self.ba_global_images_ratio < num_images \
-                    and abs(num_images - num_img_last_global_ba) < self.ba_global_images_ratio \
+            # Bundle Adjustment
+            if False and num_images > 20 and num_img_last_global_ba * self.ba_global_images_ratio < num_images \
+                    and abs(num_images - num_img_last_global_ba) < self.ba_global_images_freq \
                     and num_points_last_global_ba * self.ba_global_points_ratio < self.reconstruction.num_points3D() \
                     and abs(self.reconstruction.num_points3D() - num_points_last_global_ba) < self.ba_global_points_freq:
                 self.mapper.AdjustLocalBundle(self.inc_mapper_options, None, None, keyframe_id, None)

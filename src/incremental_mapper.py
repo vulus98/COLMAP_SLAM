@@ -747,6 +747,18 @@ class IncrementalMapper:
 
         # See: https://github.com/colmap/colmap/blob/dev/src/base/reconstruction.h/#L181
         self.reconstruction_.normalize(10.0, 0.1, 0.9, True)
+
+        tri_options = pycolmap.IncrementalTriangulatorOptions()
+        num_merged_observations = self.triangulator_.merge_all_tracks(tri_options)
+
+        num_completed_observations = self.triangulator_.complete_all_tracks(tri_options)
+
+        num_filtered_observations = self.reconstruction_.filter_all_points3D(options.filter_max_reproj_error,
+                                                                          options.filter_min_tri_angle)
+
+        logger.info("After Global BA ===============\n Merged " + str(num_merged_observations) + " tracks" +
+                    "\nCompleted " + str(num_completed_observations) + " observations" +
+                    "\nFiltered " + str(num_filtered_observations) + " observations")
         return True
 
     # Filter images and point observations.
