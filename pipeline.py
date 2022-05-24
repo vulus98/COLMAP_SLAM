@@ -45,10 +45,22 @@ class Pipeline:
         self.output_path = ""
         self.export_name = ""
 
+        self.reconstruction = None
+        self.graph = None
+        self.img_manager = None
+
     def reset(self):
         self.reconstruction = pycolmap.Reconstruction()
         self.reconstruction.add_camera(self.camera)
         self.graph = pycolmap.CorrespondenceGraph()
+        self.img_manager = images_manager.ImagesManager(self.image_path,
+                                                        self.frame_names,
+                                                        self.reconstruction,
+                                                        self.graph,
+                                                        self.camera,
+                                                        self.init_max_num_images,
+                                                        self.extractor,
+                                                        self.matcher)
 
     def set_ba_properties(self, image_ratio=None, point_ratio=None, image_freq=None, point_freq=None):
         if image_ratio:
@@ -86,12 +98,14 @@ class Pipeline:
                 max_frame = len(self.frame_names)
             self.frame_names = self.frame_names[:min(len(self.frame_names), max_frame)]
 
+            self.init_max_num_images = init_max_num_images
+
         self.img_manager = images_manager.ImagesManager(self.image_path,
                                                         self.frame_names,
                                                         self.reconstruction,
                                                         self.graph,
                                                         self.camera,
-                                                        init_max_num_images,
+                                                        self.init_max_num_images,
                                                         self.extractor,
                                                         self.matcher)
 
@@ -182,6 +196,7 @@ class Pipeline:
             logger.info(f"Iteration {iteration_count} of keyframe selection: {self.reconstruction.summary()}")
             iteration_count += 1
         logger.info(f"Final: {self.mapper.reconstruction_.summary()}")
+        self.export_rec_to_tum()
 
     def vizualize(self, vizualizer='hloc'): # or vizualizer='open3d'
         # logger.info(f"After bundle Adjustment: {self.mapper.reconstruction_.summary()}")
@@ -214,17 +229,30 @@ class Pipeline:
         self.load_data(images, output, export_name, init_max_num_images=init_max_num_images, frame_skip=frame_skip,
                     max_frame=max_frame)
         self.run()
-    
+
+    # Output corresponding to the evaluation of the TUM-RGBD dataset
+    def img_to_name(self, img):
+        return img.name[:-4] + " " + str(img.tvec[0]) + " " + str(img.tvec[1]) + " " + str(img.tvec[2]) + " " \
+               + str(img.qvec[1]) + " " + str(img.qvec[2]) + " " + str(img.qvec[3]) + " " + str(img.qvec[0]) + "\n"
+
+    def export_rec_to_tum(self):
+        if not self.reconstruction is None:
+            f = open(str(self.output_path / "estimation.txt"), "w")
+            for img_id in self.reconstruction.reg_image_ids():
+                img = self.reconstruction.images[img_id]
+                f.write(self.img_to_name(img))
+            f.close()
 
 if __name__ == '__main__':
 
-    images = Path('./data/kitti/frames/')
+    # images = Path('./data/kitti/frames/')
+    images = Path('./data/rgbd_dataset_freiburg1_xyz/rgb')
     output = Path('./out/test1/')
     export_name = output / 'reconstruction.ply'
 
-    init_max_num_images = 5
+    init_max_num_images = 20
     frame_skip = 1
-    max_frame = 20
+    max_frame = 100
     slam = Pipeline()
     slam.load_data(images, output, export_name, init_max_num_images=init_max_num_images, frame_skip=frame_skip,
                    max_frame=max_frame)
