@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 from time import sleep
+
+import cv2
 from cv2 import exp
 import pycolmap
 from src import enums, images_manager, incremental_mapper
@@ -250,8 +252,12 @@ if __name__ == '__main__':
     output = Path('./out/test1/')
     export_name = output / 'reconstruction.ply'
 
-    init_max_num_images = 20
-    frame_skip = 1
+    # Visualize the keyframe insertion. Last keyframe (with features), current keyframe (with features and optical flow lines),
+    # graph with total number of points added (before and after bundle adjustment)
+    # cv2.namedWindow('keyframe_selection_window', cv2.WINDOW_NORMAL)
+
+    init_max_num_images = 15
+    frame_skip = 5
     max_frame = 100
     slam = Pipeline()
     slam.load_data(images, output, export_name, init_max_num_images=init_max_num_images, frame_skip=frame_skip,

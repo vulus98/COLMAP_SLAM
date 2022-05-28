@@ -1,6 +1,11 @@
 import pycolmap
 import pyceres
 import numpy as np
+import cv2
+from pathlib import Path
+import matplotlib
+import matplotlib.pyplot as plt
+
 from src.enums import ImageSelectionMethod
 from Utility.logger_setup import get_logger
 from src.optimization import BundleAdjuster
@@ -492,7 +497,9 @@ class IncrementalMapper:
 
         for current_img_id in self.images_manager_.image_ids[last_keyframe_id:]:
 
-            self.images_manager_.add_to_correspondence_graph(last_keyframe_id, current_img_id)
+            matches = self.images_manager_.add_to_correspondence_graph(last_keyframe_id, current_img_id)
+            if matches is None:
+                continue
 
             current_img = self.reconstruction_.images[current_img_id]
             points_2D_current_img = []
@@ -519,8 +526,7 @@ class IncrementalMapper:
                 # Condition 1: Reject image if optical flow constraint is not satisfied
                 flow_constr = self.OpticalFlowCalculator(points_2D_current_img, points_2D_last_keyframe, answer["inliers"], camera.focal_length_x,
                                                          camera.focal_length_y)
-                if flow_constr < 0.05:
-                    continue
+
 
                 self.reconstruction_.register_image(current_img_id)
                 self.RegisterImageEvent(current_img_id)
@@ -534,11 +540,111 @@ class IncrementalMapper:
                 self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
 
 
+                img1 = cv2.imread(
+                    str(self.images_manager_.images_path / Path(self.images_manager_.frame_names[last_keyframe_id])))
+
+                img2 = cv2.imread(
+                    str(self.images_manager_.images_path / Path(self.images_manager_.frame_names[current_img_id])))
+                matched_points = [(last_keyframe.points2D[q].xy, current_img.points2D[t].xy) for q,t in matches]
+                for pt1, pt2 in matched_points:
+                    u1, v1 = map(lambda x: int(round(x)), pt1)
+                    u2, v2 = map(lambda x: int(round(x)), pt2)
+                    cv2.circle(img1, (u1, v1), color=(0, 255, 0), radius=2)
+                    cv2.circle(img2, (u2, v2), color=(0,255,0), radius=3)
+                    cv2.line(img2, (u1,v1), (u2,v2), color=(255,0,0))
+
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                green = (0, 255, 0)
+                blue = (255, 0, 0)
+                red = (0, 0, 255)
+                thickness = 1
+                lineType = cv2.LINE_AA
+
+                cv2.putText(img1,
+                            f'KEYFRAME id: {last_keyframe_id}',
+                            (50, 50),
+                            font,
+                            1,
+                            green,
+                            thickness,
+                            lineType)
+
+                cv2.putText(img2,
+                            f'id: {current_img_id}',
+                            (50, 50),
+                            font,
+                            1,
+                            blue,
+                            thickness,
+                            lineType)
+
+                # Extra information about current frame
+                cv2.putText(img2,
+                            f'Optical flow: {flow_constr:.2f}',
+                            (400, 20),
+                            font,
+                            (0.5),
+                            green if flow_constr >= 0.05 else red,
+                            thickness,
+                            lineType)
+
+                cv2.putText(img2,
+                            f'Triangulated: {current_img.num_points3D():.2f}',
+                            (400, 40),
+                            font,
+                            (0.5),
+                            green if current_img.num_points3D() >= 50 else red,
+                            thickness,
+                            lineType)
+
+                keyframe_decision = current_img.num_points3D() >= 50 and flow_constr >= 0.05
+                cv2.putText(img2,
+                            f'Keyframe? {"yes" if keyframe_decision else "no"}',
+                            (400, 60),
+                            font,
+                            (0.5),
+                            green if keyframe_decision else red,
+                            thickness,
+                            lineType)
+
+                # cv2.putText(img2, f'Forward motion: {current_img.tvec[2] - last_keyframe.tvec[2]:.2f}', (400, 40), font, (0.5),
+                #             (0,0,0), thickness, lineType)
+
+                # cv2.putText(img2, f'Number of matches: {current_img.tvec[2] - last_keyframe.tvec[2]}', (400, 70), font,
+                #             (0.3),
+                #             (0, 0, 0), thickness, lineType)
+
+                horizontal = np.concatenate((img1, img2), axis=1)
+
+                # fig = plt.figure()
+                # x = [1, 2, 3, 4, 5]
+                # y = [1, 3, 2, 5, 1]
+                # plt.plot(x, y)
+
+
+                # vertical = np.concatenate((horizontal, fig), axis=0)
+
+
+
+                cv2.imshow('keyframe_selection_window', horizontal)
+
+                key = cv2.waitKey()
+                if key == ord('q'):
+                    cv2.destroyAllWindows()
+
+
+                if flow_constr < 0.05:
+                    continue
+
+
+
                 # Condition 2: Reject registered image if it does not track sufficient points
                 if current_img.num_points3D() < 50:
                     self.reconstruction_.deregister_image(current_img_id)
                     # self.DeRegisterImageEvent(current_img_id) # TODO: Fix error at this line
                     continue
+
+
 
                 return current_img_id, True
 
@@ -623,6 +729,30 @@ class IncrementalMapper:
         # Filter3D points with large reprojection error, negative depth, or
         # insufficient triangulation angle
         self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
+
+        cv2.namedWindow('keyframe_selection_window', cv2.WINDOW_NORMAL)
+        img1 = cv2.imread(str(self.images_manager_.images_path / Path(self.images_manager_.frame_names[image_id1])))
+
+        img2 = cv2.imread(str(self.images_manager_.images_path / Path(self.images_manager_.frame_names[image_id2])))
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        bottomLeftCornerOfText = (50, 50)
+        fontScale = 1
+        fontColor = (250, 50, 50)
+        thickness = 1
+        lineType = cv2.LINE_AA
+
+
+        cv2.putText(img1, f'id: {image_id1} (Map Initialization)', bottomLeftCornerOfText, font, fontScale, fontColor, thickness, lineType)
+        cv2.putText(img2, f'id: {image_id2} (Map Initialization)', bottomLeftCornerOfText, font, fontScale, fontColor, thickness, lineType)
+
+        horizontal = np.concatenate((img1, img2), axis=1)
+
+        fig = plt.figure()
+
+
+        cv2.imshow('keyframe_selection_window', horizontal)
+        cv2.waitKey()
 
         return True
 
