@@ -29,31 +29,31 @@ class VideoWindow:
 
         
         kf_panel = gui.Vert(0.5 * em, gui.Margins(margin))
-        self.kf_label = gui.Label("Keyframe image")
-        kf_panel.add_child(self.kf_label)
+        # self.kf_label = gui.Label("Keyframe image")
+        # kf_panel.add_child(self.kf_label)
         self.kf_widget = gui.ImageWidget(o3d.geometry.Image(default_img))
         kf_panel.add_child(self.kf_widget)
         
-        f_panel = gui.Vert(0.5 * em, gui.Margins(margin))
-        self.f_label = gui.Label("Current Frame")
-        f_panel.add_child(self.f_label)
-        self.f_widget = gui.ImageWidget(o3d.geometry.Image(default_img))
-        f_panel.add_child(self.f_widget)
+        # f_panel = gui.Vert(0.5 * em, gui.Margins(margin))
+        # self.f_label = gui.Label("Current Frame")
+        # f_panel.add_child(self.f_label)
+        # self.f_widget = gui.ImageWidget(o3d.geometry.Image(default_img))
+        # f_panel.add_child(self.f_widget)
 
         settings_panel = gui.Vert(0.5 * em, gui.Margins(margin))
-        settings_panel.add_child(gui.Label("Frame update delay (sec)"))
-        _frame_delay = gui.Slider(gui.Slider.DOUBLE)
-        _frame_delay.set_limits(0, 5)
-        _frame_delay.double_value = self.frame_delay
-        _frame_delay.set_on_value_changed(self._on_frame_delay)
-        settings_panel.add_child(_frame_delay)
+        # settings_panel.add_child(gui.Label("Frame update delay (sec)"))
+        # _frame_delay = gui.Slider(gui.Slider.DOUBLE)
+        # _frame_delay.set_limits(0, 5)
+        # _frame_delay.double_value = self.frame_delay
+        # _frame_delay.set_on_value_changed(self._on_frame_delay)
+        # settings_panel.add_child(_frame_delay)
 
         settings_panel.add_child(gui.Label("Output:"))
         self.out_label = gui.Label("")
         settings_panel.add_child(self.out_label)
 
         self.panel.add_child(kf_panel)
-        self.panel.add_child(f_panel)
+        # self.panel.add_child(f_panel)
         self.panel.add_child(settings_panel)
 
 

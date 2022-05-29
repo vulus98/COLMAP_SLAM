@@ -428,13 +428,14 @@ class AppWindow:
     def _run_reconstruction(self):
         print("Checking settings....")
         
-        self.rec.reset()
         self.is_setup = False
         self.rec.extractor = self.extractor
         self.rec.matcher = self.matcher
         self.rec.selector = self.selector
 
         self.rec.load_data(self.image_path, self.output_path, self.export_name, init_max_num_images=int(self.init_frames), frame_skip=int(self.frame_skip), max_frame=int(self.frame_final))
+        self.rec.reset()
+
 
         self.frames = []
         self.imgs = []
@@ -532,7 +533,7 @@ class AppWindow:
 
 
     # Callback to run when each keyframe is registered
-    def process_frame(self, keyframe_id):
+    def process_frame(self, keyframe_id, display_img):
         print(f"Next keyframe: {keyframe_id}, rec has {len(self.rec.reconstruction.points3D)}")
         self.pt_count = len(self.rec.reconstruction.points3D)
         self._end_img.set_limits(0,self.img_count)
@@ -540,6 +541,11 @@ class AppWindow:
         if not self.vid:
             print("ERROR: no video window init")
             return 0
+
+        if display_img is not None:
+            self.kf_img = display_img
+
+
 
         if not self.last_keyframe_img:
             print('*** NO KEY FRAME SAVED')
@@ -549,22 +555,22 @@ class AppWindow:
 
         i=self.last_keyframe
 
-        self.update_keyframe()
-        self.last_keyframe = keyframe_id
+        # self.update_keyframe()
+        # self.last_keyframe = keyframe_id
 
 
-        while i <= keyframe_id:
-            # print(f"at frame {i} next keyframe is {keyframe_id}")
-            self.current_frame = i
+        # while i <= keyframe_id:
+        #     # print(f"at frame {i} next keyframe is {keyframe_id}")
+        #     self.current_frame = i
             
-            # if i == keyframe_id:
-            #     self.update_keyframe()
+        #     # if i == keyframe_id:
+        #     #     self.update_keyframe()
     
-            if len(self.imgs)>i:
-                gui.Application.instance.post_to_main_thread(self.vid.window, self.update_frames)
+        #     if len(self.imgs)>i:
+        #         gui.Application.instance.post_to_main_thread(self.vid.window, self.update_frames)
     
-            sleep(self.vid.frame_delay)
-            i+=1
+        #     sleep(self.vid.frame_delay)
+        #     i+=1
 
         gui.Application.instance.post_to_main_thread(self.window, self.refresh)
         gui.Application.instance.post_to_main_thread(self.vid.window, self.update_output)
@@ -574,7 +580,7 @@ class AppWindow:
     def update_output(self):
         # do any formatting you want here
         out = self.rec.reconstruction.summary()
-
+        self.vid.kf_widget.update_image(o3d.geometry.Image(self.kf_img.astype(np.uint8)))
         self.vid.out_label.text = out
 
     def reconstruct(self):

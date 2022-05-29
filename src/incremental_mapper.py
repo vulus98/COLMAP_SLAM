@@ -626,11 +626,11 @@ class IncrementalMapper:
 
 
 
-                cv2.imshow('keyframe_selection_window', horizontal)
+                # cv2.imshow('keyframe_selection_window', horizontal)
 
-                key = cv2.waitKey()
-                if key == ord('q'):
-                    cv2.destroyAllWindows()
+                # key = cv2.waitKey()
+                # if key == ord('q'):
+                #     cv2.destroyAllWindows()
 
 
                 if flow_constr < 0.05:
@@ -646,9 +646,9 @@ class IncrementalMapper:
 
 
 
-                return current_img_id, True
+                return current_img_id, True, horizontal
 
-        return None, False
+        return None, False, None
 
     # Attempt to seed the reconstruction from an image pair.
     def RegisterInitialImagePair(self, options, image_id1, image_id2):
@@ -730,7 +730,7 @@ class IncrementalMapper:
         # insufficient triangulation angle
         self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
 
-        cv2.namedWindow('keyframe_selection_window', cv2.WINDOW_NORMAL)
+        # cv2.namedWindow('keyframe_selection_window', cv2.WINDOW_NORMAL)
         img1 = cv2.imread(str(self.images_manager_.images_path / Path(self.images_manager_.frame_names[image_id1])))
 
         img2 = cv2.imread(str(self.images_manager_.images_path / Path(self.images_manager_.frame_names[image_id2])))
@@ -748,13 +748,12 @@ class IncrementalMapper:
 
         horizontal = np.concatenate((img1, img2), axis=1)
 
-        fig = plt.figure()
 
 
-        cv2.imshow('keyframe_selection_window', horizontal)
-        cv2.waitKey()
+        # cv2.imshow('keyframe_selection_window', horizontal)
+        # cv2.waitKey()
 
-        return True
+        return True, horizontal
 
     # Attempt to register image to the existing model. This requires that
     # a previous call to `RegisterInitialImagePair` was successful.
