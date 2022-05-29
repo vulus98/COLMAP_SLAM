@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 from time import sleep
+
+import cv2
 from cv2 import exp
 import pycolmap
 from src import enums, images_manager, incremental_mapper
@@ -128,7 +130,7 @@ class Pipeline:
             if not success:
                 logger.warning("No good initial image pair found")
                 exit(1)
-            reg_init_success = self.mapper.RegisterInitialImagePair(self.inc_mapper_options, image_id1, image_id2)
+            reg_init_success, init_display_img = self.mapper.RegisterInitialImagePair(self.inc_mapper_options, image_id1, image_id2)
             if not reg_init_success:
                 logger.warning("No registration for initial image pair")
                 exit(1)
@@ -159,9 +161,9 @@ class Pipeline:
         num_points_last_global_ba = self.reconstruction.num_points3D()
         print(self.reconstruction.num_points3D())
 
-        if per_frame_callback:
+        if per_frame_callback is not None and init_display_img is not None :
             # Adds the initialziation 
-            per_frame_callback(max(image_id1, image_id2))
+            per_frame_callback(max(image_id1, image_id2), init_display_img)
             print("added init frame")
 
         num_images = 2
@@ -171,7 +173,7 @@ class Pipeline:
 
         while success_register_keyframe:
             # Iterate through all images until you hit a keyframe and successfully register it.
-            keyframe_id, success_register_keyframe = self.mapper.FindAndRegisterNextKeyframe(self.inc_mapper_options)
+            keyframe_id, success_register_keyframe, display_img = self.mapper.FindAndRegisterNextKeyframe(self.inc_mapper_options)
 
             # if not successful, all images have been processed, and this while loop will terminate
             if not success_register_keyframe:
@@ -179,7 +181,7 @@ class Pipeline:
 
             # Trigger the callback with the new keyframe id
             if per_frame_callback:
-                per_frame_callback(keyframe_id)
+                per_frame_callback(keyframe_id, display_img)
 
             num_images += 1
             # Bundle Adjustment
@@ -250,8 +252,12 @@ if __name__ == '__main__':
     output = Path('./out/test1/')
     export_name = output / 'reconstruction.ply'
 
-    init_max_num_images = 20
-    frame_skip = 1
+    # Visualize the keyframe insertion. Last keyframe (with features), current keyframe (with features and optical flow lines),
+    # graph with total number of points added (before and after bundle adjustment)
+    # cv2.namedWindow('keyframe_selection_window', cv2.WINDOW_NORMAL)
+
+    init_max_num_images = 15
+    frame_skip = 5
     max_frame = 100
     slam = Pipeline()
     slam.load_data(images, output, export_name, init_max_num_images=init_max_num_images, frame_skip=frame_skip,

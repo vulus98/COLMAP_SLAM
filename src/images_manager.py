@@ -116,6 +116,7 @@ class ImagesManager:
             matches = np.array(matches, dtype=np.uint32)
             self.graph.add_correspondences(image_id1, image_id2, matches)
             self.corresponds[self.ImagePairToPairId(image_id1, image_id2)] = 1
+            return matches
 
     # Check if image exists on disk
     def exists_image(self, image_id):
