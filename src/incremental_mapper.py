@@ -490,7 +490,7 @@ class IncrementalMapper:
         return image_ids
 
     # Find next best image to register as keyframe and registers it into the reconstruction
-    def FindAndRegisterNextKeyframe(self, options):
+    def FindAndRegisterNextKeyframe(self, options, per_frame_callback=None):
 
         last_keyframe_id = self.reconstruction_.reg_image_ids()[-1]
         last_keyframe = self.reconstruction_.images[last_keyframe_id]
@@ -555,8 +555,8 @@ class IncrementalMapper:
 
                 font = cv2.FONT_HERSHEY_SIMPLEX
                 green = (0, 255, 0)
-                blue = (255, 0, 0)
-                red = (0, 0, 255)
+                red = (255, 0, 0)
+                blue = (0, 0, 255)
                 thickness = 1
                 lineType = cv2.LINE_AA
 
@@ -614,29 +614,14 @@ class IncrementalMapper:
                 #             (0.3),
                 #             (0, 0, 0), thickness, lineType)
 
-                horizontal = np.concatenate((img1, img2), axis=1)
+                horizontal_concat_images = np.concatenate((img1, img2), axis=1)
 
-                # fig = plt.figure()
-                # x = [1, 2, 3, 4, 5]
-                # y = [1, 3, 2, 5, 1]
-                # plt.plot(x, y)
-
-
-                # vertical = np.concatenate((horizontal, fig), axis=0)
-
-
-
-                # cv2.imshow('keyframe_selection_window', horizontal)
-
-                # key = cv2.waitKey()
-                # if key == ord('q'):
-                #     cv2.destroyAllWindows()
-
+                # Trigger the callback with the new keyframe id
+                if per_frame_callback:
+                    per_frame_callback(current_img_id, horizontal_concat_images)
 
                 if flow_constr < 0.05:
                     continue
-
-
 
                 # Condition 2: Reject registered image if it does not track sufficient points
                 if current_img.num_points3D() < 50:
@@ -644,11 +629,9 @@ class IncrementalMapper:
                     # self.DeRegisterImageEvent(current_img_id) # TODO: Fix error at this line
                     continue
 
+                return current_img_id, True
 
-
-                return current_img_id, True, horizontal
-
-        return None, False, None
+        return None, False
 
     # Attempt to seed the reconstruction from an image pair.
     def RegisterInitialImagePair(self, options, image_id1, image_id2):

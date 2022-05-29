@@ -173,15 +173,11 @@ class Pipeline:
 
         while success_register_keyframe:
             # Iterate through all images until you hit a keyframe and successfully register it.
-            keyframe_id, success_register_keyframe, display_img = self.mapper.FindAndRegisterNextKeyframe(self.inc_mapper_options)
+            keyframe_id, success_register_keyframe = self.mapper.FindAndRegisterNextKeyframe(self.inc_mapper_options, per_frame_callback=per_frame_callback)
 
             # if not successful, all images have been processed, and this while loop will terminate
             if not success_register_keyframe:
                 continue
-
-            # Trigger the callback with the new keyframe id
-            if per_frame_callback:
-                per_frame_callback(keyframe_id, display_img)
 
             num_images += 1
             # Bundle Adjustment

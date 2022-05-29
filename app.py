@@ -434,7 +434,7 @@ class AppWindow:
         self.rec.selector = self.selector
 
         self.rec.load_data(self.image_path, self.output_path, self.export_name, init_max_num_images=int(self.init_frames), frame_skip=int(self.frame_skip), max_frame=int(self.frame_final))
-        self.rec.reset()
+        # self.rec.reset()
 
 
         self.frames = []
@@ -443,6 +443,7 @@ class AppWindow:
 
 
         for frame in self.rec.frame_names:
+
             # cv2.cvtColor(self.frames[self.last_keyframe], cv2.COLOR_BGR2RGB)
             img = cv2.imread(os.path.join(self.image_path, frame))
             # img = cv2.cvtColor(bgrimg, cv2.COLOR_BGR2RGB).copy()
@@ -530,6 +531,7 @@ class AppWindow:
             self.vid.f_widget.update_image(self.imgs[self.current_frame])
             self.vid.kf_label.text = f'Last Key Frame: {self.last_keyframe}'
         self.vid.f_label.text = f'Current Frame: {self.current_frame}'
+        sleep(self.vid.frame_delay)
 
 
     # Callback to run when each keyframe is registered

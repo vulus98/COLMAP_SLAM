@@ -41,12 +41,12 @@ class VideoWindow:
         # f_panel.add_child(self.f_widget)
 
         settings_panel = gui.Vert(0.5 * em, gui.Margins(margin))
-        # settings_panel.add_child(gui.Label("Frame update delay (sec)"))
-        # _frame_delay = gui.Slider(gui.Slider.DOUBLE)
-        # _frame_delay.set_limits(0, 5)
-        # _frame_delay.double_value = self.frame_delay
-        # _frame_delay.set_on_value_changed(self._on_frame_delay)
-        # settings_panel.add_child(_frame_delay)
+        settings_panel.add_child(gui.Label("Frame update delay (sec)"))
+        _frame_delay = gui.Slider(gui.Slider.DOUBLE)
+        _frame_delay.set_limits(0, 5)
+        _frame_delay.double_value = self.frame_delay
+        _frame_delay.set_on_value_changed(self._on_frame_delay)
+        settings_panel.add_child(_frame_delay)
 
         settings_panel.add_child(gui.Label("Output:"))
         self.out_label = gui.Label("")
