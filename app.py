@@ -89,6 +89,24 @@ class AppWindow:
         # Create the settings panel on the right
         self._settings_panel = gui.Vert(0, gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
 
+        rec_loader = gui.CollapsableVert("Reconstruction Loader", 0.25 * em,
+                                         gui.Margins(em, 0, 0, 0))
+
+        rec_loader.set_is_open(False)
+        rec_horz = gui.Horiz(0.5 * em, gui.Margins(0.5*em))
+        _open_rec = gui.Button("Open Rec")
+        _open_rec.set_on_clicked(self._load_rec)
+        rec_horz.add_child(_open_rec)
+
+        _export_rec = gui.Button("Export Rec")
+        _export_rec.set_on_clicked(self._save_rec)
+        rec_horz.add_child(_export_rec)
+        
+        rec_loader.add_child(rec_horz)
+
+        self._settings_panel.add_fixed(separation_height)
+        self._settings_panel.add_child(rec_loader)
+
         # File path setting
 
         _data_loading = gui.Horiz(0,  gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
@@ -164,11 +182,16 @@ class AppWindow:
         self._settings_panel.add_fixed(separation_height)
         self._settings_panel.add_child(_run)
 
+        
+
+
 
         # Next add settings for the post reconstruction results
 
         view_ctrls = gui.CollapsableVert("Viz Settings", 0.25 * em,
                                          gui.Margins(em, 0, 0, 0))
+
+        view_ctrls.set_is_open(False)
 
 
         view_ctrls.add_child(gui.Label("Background Color"))
@@ -255,6 +278,47 @@ class AppWindow:
     def _on_init_frames(self, val):
         self.init_frames = int(val)
 
+    def _save_rec(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose folder to save reconstruction to",
+                             self.window.theme)
+
+        # A file dialog MUST define on_cancel and on_done functions
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_rec_save_done)
+        self.window.show_dialog(dlg)
+
+    def _on_rec_save_done(self, filename):
+        self.rec.reconstruction.write(filename)
+        self.window.close_dialog()
+        print(f"outputed to {os.path.join(filename,'.bin')}")
+
+
+    def _load_rec(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Select reconstruction to load",
+                             self.window.theme)
+        dlg.add_filter('.bin', 'Reconstruction Binary')
+
+        # A file dialog MUST define on_cancel and on_done functions
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_rec_load_done)
+        self.window.show_dialog(dlg)
+
+
+    def _on_rec_load_done(self, filename):
+        print("Trying to load cameras, images, and points .bin")
+        files = ['cameras.bin','images.bin','points3D.bin']
+        # for f in files:
+        try:
+            self.rec.reconstruction.read(os.path.dirname(filename))
+        except:
+            print(f"error... loading ")
+
+        print(f"loaded {filename}")
+        print(self.rec.reconstruction.summary())
+        self.window.close_dialog()
+        self.refresh()
+
+
     def _on_layout(self, layout_context):
         # The on_layout callback should set the frame (position + size) of every
         # child correctly. After the callback is done the window will layout
@@ -282,20 +346,19 @@ class AppWindow:
             # path = viz.generate_path(self.rec.reconstruction, lambda img: img > self.start_img and img < self.end_img)
 
             path = viz.generate_path(self.rec.reconstruction)
-            print(path)
             if len(path.points) > 0:
                 
-                true_path = viz.generate_true_path(self.rec.image_path.parent / 'groundtruth.txt')
+                # true_path = viz.generate_true_path(self.rec.image_path.parent / 'groundtruth.txt')
 
-                scale1 = np.linalg.norm(path.get_max_bound() - path.get_min_bound())
-                scale2 = np.linalg.norm(true_path.get_max_bound() - true_path.get_min_bound())
+                # scale1 = np.linalg.norm(path.get_max_bound() - path.get_min_bound())
+                # scale2 = np.linalg.norm(true_path.get_max_bound() - true_path.get_min_bound())
 
-                true_path.translate(path.get_center(), False)
+                # true_path.translate(path.get_center(), False)
 
-                # true_path.scale(scale2/scale1, path.get_center())
+                # # true_path.scale(scale2/scale1, path.get_center())
 
-                if not self._scene.scene.has_geometry("__true_path__"):
-                    self._scene.scene.add_geometry("__true_path__", true_path, self.mat)
+                # if not self._scene.scene.has_geometry("__true_path__"):
+                #     self._scene.scene.add_geometry("__true_path__", true_path, self.mat)
 
 
                 self._scene.scene.add_geometry("__path__", path, self.mat)
@@ -358,7 +421,7 @@ class AppWindow:
         
         pt_bounds = viz.generate_pts(self.rec.reconstruction).get_axis_aligned_bounding_box()
         cam_bounds = viz.generate_cams(self.rec.reconstruction, self.cam_scale).get_oriented_bounding_box()
-        self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,-1])@cam_bounds.R)
+        self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,1])@cam_bounds.R)
 
 
 
@@ -442,48 +505,38 @@ class AppWindow:
         self.last_keyframe = 0 
 
 
-        for frame in self.rec.frame_names:
+        # for frame in self.rec.frame_names:
 
-            # cv2.cvtColor(self.frames[self.last_keyframe], cv2.COLOR_BGR2RGB)
-            img = cv2.imread(os.path.join(self.image_path, frame))
-            # img = cv2.cvtColor(bgrimg, cv2.COLOR_BGR2RGB).copy()
+        #     # cv2.cvtColor(self.frames[self.last_keyframe], cv2.COLOR_BGR2RGB)
+        #     img = cv2.imread(os.path.join(self.image_path, frame))
+        #     # img = cv2.cvtColor(bgrimg, cv2.COLOR_BGR2RGB).copy()
 
 
-            # img = Image.open(os.path.join(self.image_path, frame))
+        #     # img = Image.open(os.path.join(self.image_path, frame))
 
-            self.frames.append(img)
-            self.imgs.append(o3d.io.read_image(os.path.join(self.image_path, frame)))
+        #     self.frames.append(img)
+        #     self.imgs.append(o3d.io.read_image(os.path.join(self.image_path, frame)))
 
-        self.update_keyframe()
+        # self.update_keyframe()
 
 
         threading.Thread(target=self.reconstruct).start()
         # self.reconstruct()
 
 
-    def export_image(self, path, width, height):
-
-        def on_image(image):
-            img = image
-
-            quality = 9  # png
-            if path.endswith(".jpg"):
-                quality = 100
-            o3d.io.write_image(path, img, quality)
-
-        self._scene.scene.scene.render_to_image(on_image)
-
     def update_pts(self):
         if self._scene.scene.has_geometry("__recon__"):
             self._scene.scene.remove_geometry(f"__recon__")
         
-        pts = viz.generate_pts(self.rec.reconstruction, self.rec.image_path, lambda pt: len([e for e in pt.track.elements if e.image_id > self.start_img and e.image_id < self.end_img ]) > 0)
+        pts = viz.generate_pts(self.rec.reconstruction, self.rec.image_path)#, lambda pt: len([e for e in pt.track.elements if e.image_id > self.start_img and e.image_id < self.end_img ]) > 0)
         self._scene.scene.add_geometry("__recon__", pts, self.mat)
 
 
     def refresh(self):
-
-        self.img_count = max(self.rec.reconstruction.images)
+        if len(self.rec.reconstruction.images) == 0:
+            self.img_count = 0
+        else:
+            self.img_count = max(self.rec.reconstruction.images)
         self.pt_count = len(self.rec.reconstruction.points3D)
         self.end_img  = self.img_count
 
@@ -533,29 +586,32 @@ class AppWindow:
         self.vid.f_label.text = f'Current Frame: {self.current_frame}'
         sleep(self.vid.frame_delay)
 
-
     # Callback to run when each keyframe is registered
     def process_frame(self, keyframe_id, display_img):
         print(f"Next keyframe: {keyframe_id}, rec has {len(self.rec.reconstruction.points3D)}")
         self.pt_count = len(self.rec.reconstruction.points3D)
         self._end_img.set_limits(0,self.img_count)
-
+        self.refresh_counter += 1
         if not self.vid:
             print("ERROR: no video window init")
             return 0
 
         if display_img is not None:
-            self.kf_img = display_img
+            self.refresh_counter+=1
+            self.kf_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+
+        if self.refresh_counter > 3:
+            self.refresh_counter = 0
+            self.is_setup = False
 
 
+        # if not self.last_keyframe_img:
+        #     print('*** NO KEY FRAME SAVED')
+        #     self.update_keyframe()
+        #     print(self.last_keyframe_img)
 
-        if not self.last_keyframe_img:
-            print('*** NO KEY FRAME SAVED')
-            self.update_keyframe()
-            print(self.last_keyframe_img)
 
-
-        i=self.last_keyframe
+        # i=self.last_keyframe
 
         # self.update_keyframe()
         # self.last_keyframe = keyframe_id
@@ -589,6 +645,8 @@ class AppWindow:
         print(f"Running on data at {self.image_path} with {self.extractor.name} and {self.matcher.name}...")
 
         self._scene.scene.clear_geometry()
+        self.refresh_counter = 0
+
 
         self.rec.run(per_frame_callback=self.process_frame)
 
@@ -603,7 +661,7 @@ def main():
 
     gui.Application.instance.initialize()
 
-    w = AppWindow(1024, 768, "./data/rgbd_dataset_freiburg2_xyz/rgb/")
+    w = AppWindow(1500, 827, "./data/rgbd_dataset_freiburg2_xyz/rgb/")
 
     gui.Application.instance.run()
 

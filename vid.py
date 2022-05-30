@@ -14,7 +14,7 @@ class VideoWindow:
         self.rgb_images = []    
 
         self.window = gui.Application.instance.create_window(
-            "Keyframes and live video", 1600, 600)
+            "Keyframes and live video", 1500, 488)
         self.window.set_on_layout(self._on_layout)
         self.window.set_on_close(self._on_close)
 

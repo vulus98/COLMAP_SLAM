@@ -42,9 +42,10 @@ def generate_pts(rec, path=None, filter = lambda x: True):
 
     # Build the 3d structure
     for p in rec.points3D:
-        if filter(rec.points3D[p]):
-            pts += [rec.points3D[p].xyz]
-            colors += [np.array(rec.points3D[p].color)/255]
+        if p in rec.points3D:
+            if filter(rec.points3D[p]):
+                pts += [rec.points3D[p].xyz]
+                colors += [np.array(rec.points3D[p].color)/255]
 
     pcd.points = o3d.utility.Vector3dVector(pts)
     pcd.colors = o3d.utility.Vector3dVector(colors)
