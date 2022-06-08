@@ -46,6 +46,7 @@ class AppWindow:
         self.export_name = "reconstruction.ply"
         self.frames = []
         self.init_frames = 20
+        self.flow_thresh = 0.05
 
         try:
             self.raw_img_count = len(os.listdir(data_path))
@@ -150,6 +151,7 @@ class AppWindow:
         _init_frames.set_on_value_changed(self._on_init_frames)
         self._settings_panel.add_child(_init_frames)
 
+        self.add_slider("Optical Flow Threshold", .01, .15, self._on_set_thresh, self._settings_panel, gui.Slider.DOUBLE, self.flow_thresh)
 
         # Next basic reconstruction settings
         self._settings_panel.add_child(gui.Label("Reconstruction Settings"))
@@ -266,7 +268,19 @@ class AppWindow:
         w.add_child(self._scene)
         w.add_child(self._settings_panel)
 
+    def add_slider(self, label, min, max, callback, parent, type=gui.Slider.INT, start_val=0):
+        parent.add_child(gui.Label(label))
+        slider = gui.Slider(type)
+        slider.set_limits(min, max)
+        slider.double_value = start_val
+        slider.set_on_value_changed(callback)
+        parent.add_child(slider)
+
     # Whole bunch of on event listeners for setting changes above
+
+    def _on_set_thresh(self, val):
+        self.flow_thresh = val
+
     def _on_frame_final(self, val):
         self.frame_final = int(val)
 
@@ -648,7 +662,7 @@ class AppWindow:
         self.refresh_counter = 0
 
 
-        self.rec.run(per_frame_callback=self.process_frame)
+        self.rec.run(per_frame_callback=self.process_frame, optical_flow_threshold=self.flow_thresh)
 
         print(self.rec.reconstruction.images.keys())
         print(self.rec.reconstruction.reg_image_ids())

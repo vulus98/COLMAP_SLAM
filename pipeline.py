@@ -117,10 +117,12 @@ class Pipeline:
 
         self.inc_mapper_options.init_max_num_images = init_max_num_images
 
-    def run(self, image_id1=-1, image_id2=-1, init_max_trials=10, per_frame_callback=None):
+    def run(self, image_id1=-1, image_id2=-1, init_max_trials=10, per_frame_callback=None, optical_flow_threshold=0.05):
         if not self.img_manager:
             logger.error("Load images first!")
             return
+
+        self.inc_mapper_options.optical_flow_threshold = optical_flow_threshold
 
         self.mapper.BeginReconstruction(self.reconstruction, self.graph, self.img_manager)
 

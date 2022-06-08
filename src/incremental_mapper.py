@@ -79,6 +79,8 @@ class IncrementalMapperOptions:
     # Number of images to check for finding InitialImage pair
     init_max_num_images = 60
 
+    optical_flow_threshold = 0.05
+
     # TODO add a check methods for parameters
     def check(self):
         return True
@@ -321,7 +323,7 @@ class IncrementalMapper:
                                                  camera1.focal_length_y)
 
         # if abs(image_id1 - image_id2) > 30 and flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
-        if flow_constr > 0.055 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
+        if flow_constr > options.optical_flow_threshold * 1.1 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
                 answer["tvec"][2]) < options.init_max_forward_motion:
             # TODO: Note the Colmap code checks also the triangulation angle but this seems not really possible with the pycolmap bindings
             # see: https://github.com/colmap/colmap/blob/dev/src/estimators/two_view_geometry.cc/#L216-L217
@@ -584,7 +586,7 @@ class IncrementalMapper:
                             (400, 20),
                             font,
                             (0.5),
-                            green if flow_constr >= 0.05 else red,
+                            green if flow_constr >= options.optical_flow_threshold else red,
                             thickness,
                             lineType)
 
@@ -597,7 +599,7 @@ class IncrementalMapper:
                             thickness,
                             lineType)
 
-                keyframe_decision = current_img.num_points3D() >= 50 and flow_constr >= 0.05
+                keyframe_decision = current_img.num_points3D() >= 50 and flow_constr >= options.optical_flow_threshold
                 cv2.putText(img2,
                             f'Keyframe? {"yes" if keyframe_decision else "no"}',
                             (400, 60),
@@ -620,7 +622,7 @@ class IncrementalMapper:
                 if per_frame_callback:
                     per_frame_callback(current_img_id, horizontal_concat_images)
 
-                if flow_constr < 0.05:
+                if flow_constr < options.optical_flow_threshold:
                     continue
 
                 # Condition 2: Reject registered image if it does not track sufficient points
