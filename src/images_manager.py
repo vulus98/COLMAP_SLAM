@@ -7,12 +7,10 @@ import numpy as np
 from tqdm import tqdm
 
 
+# This class stores the used image list and their correspondent features and matches
+# Should be seen as a substitution for the database
 class ImagesManager:
-    """
-    This class stores the used image list and their correspondent features and matches
-    Should be seen as a substitution for the database
-    """
-
+ 
     # The path to the images on the disk
     images_path = Path("")
 
@@ -67,22 +65,18 @@ class ImagesManager:
         # Register all images
         for image_id in tqdm(range(len(frame_names)), "Registering the corresponding images"):
             self.register_image(image_id)
-
         self.image_ids = sorted(self.image_ids)
-
         # Set the correspondences
         for image_id in range(len(frame_names)):
             self.reconstruction.images[image_id].num_observations = self.graph.num_observations_for_image(image_id)
             self.reconstruction.images[image_id].num_correspondences = self.graph.num_correspondences_for_image(image_id)
 
 
+    # Extract keypoints+descriptors, add image to reconstruction and graph and add correspondences
+    # params:
+    # image_id
+    # return:
     def register_image(self, image_id):
-        """
-        Extract keypoints+descriptors, add image to reconstruction and graph,
-        and add correspondences
-        :param image_id:
-        :return:
-        """
         self.kp_map[image_id], self.descriptor_map[image_id] = features.detector(self.images_path,
                                                                                self.frame_names[image_id],
                                                                                self.extractor,
@@ -94,22 +88,22 @@ class ImagesManager:
         self.reconstruction.add_image(image)
         self.graph.add_image(image_id, len(image.points2D))
         self.image_ids.append(image_id)
-
         if image_id < self.init_max_num_images:
-            # for image_id2 in self.image_ids[max(0, image_id - self.init_max_num_images):image_id]:
             for image_id2 in self.image_ids[0:image_id]:
                 self.add_to_correspondence_graph(image_id, image_id2)
-
+    # Deregister given image from reconstruction object
     def deregister_image(self, image_id):
         self.reconstruction.deregister_image(image_id)
 
+    # Extract and match feature from images in the Image Manager and store it 
     def match_images(self, image_id1, image_id2):
         matches = features.matcher(self.descriptor_map[image_id1], self.descriptor_map[image_id2], self.matcher,
                                    self.used_matcher)
         # Since the first parameter for matcher is actually the query
         matches = [(match.queryIdx, match.trainIdx) for match in matches]
         return matches
-
+    
+    # Add paired images and matched features into Correspondence graph object 
     def add_to_correspondence_graph(self, image_id1, image_id2):
         if image_id1 != image_id2 and self.corresponds.get(self.ImagePairToPairId(image_id1, image_id2), 0) == 0:
             matches = self.match_images(image_id1, image_id2)
@@ -118,9 +112,8 @@ class ImagesManager:
             self.corresponds[self.ImagePairToPairId(image_id1, image_id2)] = 1
             return matches
 
-    # Check if image exists on disk
+    # Check if image exists by image id
     def exists_image(self, image_id):
-        # TODO should be rewritten to actual check on disk
         return 0 <= image_id < len(self.frame_names)
 
     # Returns a tuple of two image id´s where the first entry is the smaller one
