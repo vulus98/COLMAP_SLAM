@@ -90,6 +90,7 @@ class AppWindow:
         # Create the settings panel on the right
         self._settings_panel = gui.Vert(0, gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
 
+        # Top bar to load/save reconstructions
         rec_loader = gui.CollapsableVert("Reconstruction Loader", 0.25 * em,
                                          gui.Margins(em, 0, 0, 0))
 
@@ -108,8 +109,8 @@ class AppWindow:
         self._settings_panel.add_fixed(separation_height)
         self._settings_panel.add_child(rec_loader)
 
-        # File path setting
-
+        # Main reconstruction settings
+        ## Change data paths
         _data_loading = gui.Horiz(0,  gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
         self._settings_panel.add_child(gui.Label("Data Settings"))
         self._data_path = gui.Label(f"Data Path:\n {self.image_path}")
@@ -130,6 +131,7 @@ class AppWindow:
 
         self._settings_panel.add_child(_data_loading)
         
+        ## Frame skip slider
         self._settings_panel.add_child(gui.Label("Number of frames to skip"))
         _frame_skip = gui.Slider(gui.Slider.INT)
         _frame_skip.set_limits(1, 30)
@@ -137,6 +139,7 @@ class AppWindow:
         _frame_skip.set_on_value_changed(self._on_frame_skip)
         self._settings_panel.add_child(_frame_skip)
 
+        # Number of frames of the sequence to process
         self._settings_panel.add_child(gui.Label("Max number of frames"))
         self._frame_final = gui.Slider(gui.Slider.INT)
         self._frame_final.set_limits(0, self.raw_img_count // self.frame_skip)
@@ -144,6 +147,7 @@ class AppWindow:
         self._frame_final.set_on_value_changed(self._on_frame_final)
         self._settings_panel.add_child(self._frame_final)
 
+        # Frames for init
         self._settings_panel.add_child(gui.Label("Max frames for initialization"))
         _init_frames = gui.Slider(gui.Slider.INT)
         _init_frames.set_limits(0, 60)
@@ -151,12 +155,14 @@ class AppWindow:
         _init_frames.set_on_value_changed(self._on_init_frames)
         self._settings_panel.add_child(_init_frames)
 
+        # Optical flow threshold setter
         self.add_slider("Optical Flow Threshold", .01, .15, self._on_set_thresh, self._settings_panel, gui.Slider.DOUBLE, self.flow_thresh)
 
-        # Next basic reconstruction settings
+        # Basic reconstruction settings
         self._settings_panel.add_child(gui.Label("Reconstruction Settings"))
+        
 
-
+        # Feature extractor
         _extractor = gui.Combobox()
         for name, _ in enums.Extractors.__members__.items():
             _extractor.add_item(name)
@@ -166,6 +172,7 @@ class AppWindow:
         self._settings_panel.add_child(gui.Label("Feature Extractor"))
         self._settings_panel.add_child(_extractor)
 
+        # Feature matcher
         _matcher = gui.Combobox()
         for name, _ in enums.Matchers.__members__.items():
             _matcher.add_item(name)
@@ -175,45 +182,41 @@ class AppWindow:
         self._settings_panel.add_child(gui.Label("Feature Matcher"))
         self._settings_panel.add_child(_matcher)
 
-
-
-        # Maybe add a frame rate thing? how many frames we want to process
-
+        # Button to run the reconstruction
         _run = gui.Button("Run")
         _run.set_on_clicked(self._run_reconstruction)
         self._settings_panel.add_fixed(separation_height)
         self._settings_panel.add_child(_run)
 
-        
-
-
 
         # Next add settings for the post reconstruction results
-
         view_ctrls = gui.CollapsableVert("Viz Settings", 0.25 * em,
                                          gui.Margins(em, 0, 0, 0))
 
         view_ctrls.set_is_open(False)
 
-
+        # Changes the color of the reconstruction viewer
         view_ctrls.add_child(gui.Label("Background Color"))
         _bg_color = gui.ColorEdit()
         _bg_color.color_value = gui.Color(1,1,1)
         _bg_color.set_on_value_changed(self._on_bg_color)
         view_ctrls.add_child(_bg_color)
 
+        # Shows camera path path through the scene
         _show_cam_path = gui.Checkbox("Show Camera Path")
         _show_cam_path.set_on_checked(self._on_show_path)
         _show_cam_path.checked = self.show_path
         view_ctrls.add_fixed(separation_height)
         view_ctrls.add_child(_show_cam_path)
 
+        # Toggles cameras
         _show_cams = gui.Checkbox("Show Cameras")
         _show_cams.set_on_checked(self._on_show_cams)
         _show_cams.checked = self.show_cam
         view_ctrls.add_fixed(separation_height)
         view_ctrls.add_child(_show_cams)
 
+        # Shows tracks for a given point
         view_ctrls.add_child(gui.Label("Show Camera Track"))
         self._camera_tracks = gui.Slider(gui.Slider.INT)
         self._camera_tracks.set_limits(-1, self.pt_count)
@@ -221,6 +224,7 @@ class AppWindow:
         self._camera_tracks.set_on_value_changed(self._on_show_tracks)
         view_ctrls.add_child(self._camera_tracks)
 
+        # Change camera scale
         view_ctrls.add_child(gui.Label("Camera Scale"))
         _cam_size = gui.Slider(gui.Slider.DOUBLE)
         _cam_size.set_limits(0, 50)
@@ -228,6 +232,7 @@ class AppWindow:
         _cam_size.double_value = self.cam_scale
         view_ctrls.add_child(_cam_size)
 
+        # Changes the size of the points
         view_ctrls.add_child(gui.Label("Point Scale"))
         _pt_size = gui.Slider(gui.Slider.DOUBLE)
         _pt_size.set_limits(3, 50)
@@ -235,6 +240,7 @@ class AppWindow:
         _pt_size.double_value = 10
         view_ctrls.add_child(_pt_size)
 
+        # Resets the camera angle
         _reset_view = gui.Button("Reset Camera")
         _reset_view.set_on_clicked(self._reset_view)
         view_ctrls.add_fixed(separation_height)
@@ -242,8 +248,7 @@ class AppWindow:
 
         view_ctrls.add_fixed(separation_height)
 
-        # Not sure if we want to keep these, should be used to view only a portion of the reconstruction/animate progress through the reconstruction
-
+        # Following two restrict reconstruction viz to only a portion of the data
         view_ctrls.add_child(gui.Label("Start Image"))
         self._start_img = gui.Slider(gui.Slider.INT)
         self._start_img.set_limits(0, self.img_count)
@@ -263,11 +268,12 @@ class AppWindow:
         
         # This is from the tutorial
         # http://www.open3d.org/docs/release/python_example/visualization/index.html#vis-gui-py
-        # to render the panel on top of the scene
+        # to render the panel on top of the scene and scale stuff as teh window size changes
         w.set_on_layout(self._on_layout)
         w.add_child(self._scene)
         w.add_child(self._settings_panel)
 
+    # Function to create a slider in one line
     def add_slider(self, label, min, max, callback, parent, type=gui.Slider.INT, start_val=0):
         parent.add_child(gui.Label(label))
         slider = gui.Slider(type)
@@ -276,8 +282,7 @@ class AppWindow:
         slider.set_on_value_changed(callback)
         parent.add_child(slider)
 
-    # Whole bunch of on event listeners for setting changes above
-
+    # Bunch of event listeners for different settings above changing
     def _on_set_thresh(self, val):
         self.flow_thresh = val
 
@@ -292,11 +297,10 @@ class AppWindow:
     def _on_init_frames(self, val):
         self.init_frames = int(val)
 
+    ## Saves the reconstruction object to a selected folder
     def _save_rec(self):
-        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose folder to save reconstruction to",
-                             self.window.theme)
+        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose folder to save reconstruction to", self.window.theme)
 
-        # A file dialog MUST define on_cancel and on_done functions
         dlg.set_on_cancel(self._on_file_dialog_cancel)
         dlg.set_on_done(self._on_rec_save_done)
         self.window.show_dialog(dlg)
@@ -306,13 +310,11 @@ class AppWindow:
         self.window.close_dialog()
         print(f"outputed to {os.path.join(filename,'.bin')}")
 
-
+    ## Loads reconstruction from files
     def _load_rec(self):
-        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Select reconstruction to load",
-                             self.window.theme)
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Select reconstruction to load", self.window.theme)
         dlg.add_filter('.bin', 'Reconstruction Binary')
 
-        # A file dialog MUST define on_cancel and on_done functions
         dlg.set_on_cancel(self._on_file_dialog_cancel)
         dlg.set_on_done(self._on_rec_load_done)
         self.window.show_dialog(dlg)
@@ -320,8 +322,6 @@ class AppWindow:
 
     def _on_rec_load_done(self, filename):
         print("Trying to load cameras, images, and points .bin")
-        files = ['cameras.bin','images.bin','points3D.bin']
-        # for f in files:
         try:
             self.rec.reconstruction.read(os.path.dirname(filename))
         except:
@@ -357,24 +357,10 @@ class AppWindow:
             self._scene.scene.remove_geometry("__path__")
 
         if show and self.start_img < self.end_img:
-            # path = viz.generate_path(self.rec.reconstruction, lambda img: img > self.start_img and img < self.end_img)
+            path = viz.generate_path(self.rec.reconstruction, lambda img: img > self.start_img and img < self.end_img)
 
-            path = viz.generate_path(self.rec.reconstruction)
+            # path = viz.generate_path(self.rec.reconstruction)  # uncomment to disable filtering if there are OpenGL errors
             if len(path.points) > 0:
-                
-                # true_path = viz.generate_true_path(self.rec.image_path.parent / 'groundtruth.txt')
-
-                # scale1 = np.linalg.norm(path.get_max_bound() - path.get_min_bound())
-                # scale2 = np.linalg.norm(true_path.get_max_bound() - true_path.get_min_bound())
-
-                # true_path.translate(path.get_center(), False)
-
-                # # true_path.scale(scale2/scale1, path.get_center())
-
-                # if not self._scene.scene.has_geometry("__true_path__"):
-                #     self._scene.scene.add_geometry("__true_path__", true_path, self.mat)
-
-
                 self._scene.scene.add_geometry("__path__", path, self.mat)
 
     def _on_show_tracks(self, pt_id):
@@ -382,12 +368,10 @@ class AppWindow:
             self._scene.scene.remove_geometry("__track__")
 
         if pt_id > 0:
-            # track = viz.generate_tracks(self.rec.reconstruction, int(pt_id),lambda elem: elem.image_id > self.start_img and elem.image_id < self.end_img)
-            track = viz.generate_tracks(self.rec.reconstruction, int(pt_id))
+            track = viz.generate_tracks(self.rec.reconstruction, int(pt_id),lambda elem: elem.image_id > self.start_img and elem.image_id < self.end_img)
+            # track = viz.generate_tracks(self.rec.reconstruction, int(pt_id))  # Uncomment to disable filtering  if there are OpenGL errors
 
             if len(track.points) > 0:
-                
-                print(track)
                 self._scene.scene.add_geometry("__track__", track, self.mat)
 
     def _on_show_cams(self, show):
@@ -396,7 +380,7 @@ class AppWindow:
 
         if show and self.start_img < self.end_img:
             cams = viz.generate_cams(self.rec.reconstruction, self.cam_scale, lambda img: img > self.start_img and img < self.end_img)
-            # cams = viz.generate_cams(self.rec.reconstruction, self.cam_scale)
+            # cams = viz.generate_cams(self.rec.reconstruction, self.cam_scale)  # Uncomment to disable filtering  if there are OpenGL errors
 
             if len(cams.points) > 0:
                 self._scene.scene.add_geometry(f"__cams__", cams, self.mat)
@@ -431,27 +415,24 @@ class AppWindow:
     def _on_point_size(self, size):
         self._point_size.double_value = int(size)
 
+    ## Reset the camera view to just behind the center of the tracked cameras
     def _reset_view(self):
-        
+        # Replace with behind last camera?
         pt_bounds = viz.generate_pts(self.rec.reconstruction).get_axis_aligned_bounding_box()
         cam_bounds = viz.generate_cams(self.rec.reconstruction, self.cam_scale).get_oriented_bounding_box()
         self._scene.look_at(pt_bounds.get_center(), cam_bounds.get_center() + (cam_bounds.get_center() - pt_bounds.get_center())/3 , np.array([0,0,1])@cam_bounds.R)
 
 
-
-
+    ## File selector callbacks
     def _on_data_open(self):
-        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose root folder of image data",
-                             self.window.theme)
+        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose root folder of image data", self.window.theme)
 
-        # A file dialog MUST define on_cancel and on_done functions
         dlg.set_on_cancel(self._on_file_dialog_cancel)
         dlg.set_on_done(self._on_data_dialog_done)
         self.window.show_dialog(dlg)
 
     def _on_out_open(self):
-        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose output folder for reconstruction",
-                             self.window.theme)
+        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose output folder for reconstruction", self.window.theme)
 
         dlg.set_on_cancel(self._on_file_dialog_cancel)
         dlg.set_on_done(self._on_out_dialog_done)
@@ -476,32 +457,15 @@ class AppWindow:
         self._frame_final.set_limits(0, self.raw_img_count // self.frame_skip)
         self._frame_final.int_value = self.raw_img_count // self.frame_skip
 
-
-        self._data_path.text = '/'.join(filename.split('/')[-2:])
+        self._data_path.text = 'Data Path:\n' + '/'.join(filename.split('/')[-2:])
 
     def _on_out_dialog_done(self, filename):
         self.window.close_dialog()
         self.output_path = filename
         print(filename)
-        self._out_path.text = '/'.join(filename.split('/')[-2:])
+        self._out_path.text = 'Output Path:\n'+'/'.join(filename.split('/')[-2:])
 
-    def _on_menu_export(self):
-        dlg = gui.FileDialog(gui.FileDialog.SAVE, "Choose file to save",
-                             self.window.theme)
-        dlg.add_filter(".png", "PNG files (.png)")
-        dlg.set_on_cancel(self._on_file_dialog_cancel)
-        dlg.set_on_done(self._on_export_dialog_done)
-        self.window.show_dialog(dlg)
-
-    def _on_export_dialog_done(self, filename):
-        self.window.close_dialog()
-        frame = self._scene.frame
-        self.export_image(filename, frame.width, frame.height)
-
-
-    def _on_about_ok(self):
-        self.window.close_dialog()
-
+    # Starts the running of the reconstruction, clears old data and sets things up
     def _run_reconstruction(self):
         print("Checking settings....")
         
@@ -518,26 +482,10 @@ class AppWindow:
         self.imgs = []
         self.last_keyframe = 0 
 
-
-        # for frame in self.rec.frame_names:
-
-        #     # cv2.cvtColor(self.frames[self.last_keyframe], cv2.COLOR_BGR2RGB)
-        #     img = cv2.imread(os.path.join(self.image_path, frame))
-        #     # img = cv2.cvtColor(bgrimg, cv2.COLOR_BGR2RGB).copy()
-
-
-        #     # img = Image.open(os.path.join(self.image_path, frame))
-
-        #     self.frames.append(img)
-        #     self.imgs.append(o3d.io.read_image(os.path.join(self.image_path, frame)))
-
-        # self.update_keyframe()
-
-
+        # Start the reconstruction in a new thread
         threading.Thread(target=self.reconstruct).start()
-        # self.reconstruct()
 
-
+    ## Updates the points in the reconstruction
     def update_pts(self):
         if self._scene.scene.has_geometry("__recon__"):
             self._scene.scene.remove_geometry(f"__recon__")
@@ -545,7 +493,7 @@ class AppWindow:
         pts = viz.generate_pts(self.rec.reconstruction, self.rec.image_path)#, lambda pt: len([e for e in pt.track.elements if e.image_id > self.start_img and e.image_id < self.end_img ]) > 0)
         self._scene.scene.add_geometry("__recon__", pts, self.mat)
 
-
+    ## Refresh the UI
     def refresh(self):
         if len(self.rec.reconstruction.images) == 0:
             self.img_count = 0
@@ -572,35 +520,8 @@ class AppWindow:
             
             self._reset_view()
 
-    def update_keyframe(self):
-        
-        img = self.frames[self.last_keyframe]
-        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).copy()
-        
 
-        for p in self.rec.reconstruction.images[self.last_keyframe].get_valid_points2D():
-            if p.point3D_id >= 18446744073709551614:  # Invalid 3d point
-                continue
-            img = cv2.circle(img, p.xy.astype(np.uint16), 3, 255*np.array(cm.gist_ncar(p.point3D_id/self.pt_count)[:2]))
-
-        self.last_keyframe_img = o3d.geometry.Image(img.astype(np.uint8))
-
-        # self.vid.kf_widget.update_image(self.last_keyframe_img)
-
-    def update_frames(self):
-        self.vid.kf_widget.update_image(self.last_keyframe_img)
-        
-
-        if self.current_frame == self.last_keyframe:
-            self.update_keyframe()
-            self.vid.f_widget.update_image(self.last_keyframe_img)
-        else:
-            self.vid.f_widget.update_image(self.imgs[self.current_frame])
-            self.vid.kf_label.text = f'Last Key Frame: {self.last_keyframe}'
-        self.vid.f_label.text = f'Current Frame: {self.current_frame}'
-        sleep(self.vid.frame_delay)
-
-    # Callback to run when each keyframe is registered
+    # Callback to run when each frame is processed
     def process_frame(self, keyframe_id, display_img):
         print(f"Next keyframe: {keyframe_id}, rec has {len(self.rec.reconstruction.points3D)}")
         self.pt_count = len(self.rec.reconstruction.points3D)
@@ -615,46 +536,21 @@ class AppWindow:
             self.kf_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
 
         if self.refresh_counter > 3:
+            # Update camera view every 3 registrations
             self.refresh_counter = 0
             self.is_setup = False
 
 
-        # if not self.last_keyframe_img:
-        #     print('*** NO KEY FRAME SAVED')
-        #     self.update_keyframe()
-        #     print(self.last_keyframe_img)
-
-
-        # i=self.last_keyframe
-
-        # self.update_keyframe()
-        # self.last_keyframe = keyframe_id
-
-
-        # while i <= keyframe_id:
-        #     # print(f"at frame {i} next keyframe is {keyframe_id}")
-        #     self.current_frame = i
-            
-        #     # if i == keyframe_id:
-        #     #     self.update_keyframe()
-    
-        #     if len(self.imgs)>i:
-        #         gui.Application.instance.post_to_main_thread(self.vid.window, self.update_frames)
-    
-        #     sleep(self.vid.frame_delay)
-        #     i+=1
-
         gui.Application.instance.post_to_main_thread(self.window, self.refresh)
         gui.Application.instance.post_to_main_thread(self.vid.window, self.update_output)
 
-
-
+    # Updates the frame/output window
     def update_output(self):
-        # do any formatting you want here
         out = self.rec.reconstruction.summary()
         self.vid.kf_widget.update_image(o3d.geometry.Image(self.kf_img.astype(np.uint8)))
         self.vid.out_label.text = out
 
+    # Threaded function to actually call reconstruction.run
     def reconstruct(self):
         print(f"Running on data at {self.image_path} with {self.extractor.name} and {self.matcher.name}...")
 
@@ -669,13 +565,10 @@ class AppWindow:
 
         self.refresh()
 
-            
-
 def main():
-
     gui.Application.instance.initialize()
 
-    w = AppWindow(1500, 827, "./data/rgbd_dataset_freiburg2_xyz/rgb/")
+    AppWindow(1500, 827, "./data/rgbd_dataset_freiburg2_xyz/rgb/")
 
     gui.Application.instance.run()
 
