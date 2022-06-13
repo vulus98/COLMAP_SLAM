@@ -15,8 +15,7 @@ class Pipeline:
 
     def __init__(self,
                  extractor=enums.Extractors(1),
-                 matcher=enums.Matchers(1),
-                 selector=enums.ImageSelectionMethod(1)):
+                 matcher=enums.Matchers(1)):
 
         # Default camera
         self.camera = pycolmap.Camera(
@@ -39,7 +38,6 @@ class Pipeline:
 
         self.extractor = extractor
         self.matcher = matcher
-        self.selector = selector
 
         # Empty paths to be set during load
         self.image_path = ""
@@ -237,11 +235,14 @@ class Pipeline:
 
     def export_rec_to_tum(self):
         if not self.reconstruction is None:
-            f = open(str(self.output_path / "estimation.txt"), "w")
-            for img_id in self.reconstruction.reg_image_ids():
-                img = self.reconstruction.images[img_id]
-                f.write(self.img_to_name(img))
-            f.close()
+            try:
+                f = open(str(self.output_path / "estimation.txt"), "w")
+                for img_id in self.reconstruction.reg_image_ids():
+                    img = self.reconstruction.images[img_id]
+                    f.write(self.img_to_name(img))
+                f.close()
+            except Exception as e:
+                print("Error saving estimation:", e)
 
 if __name__ == '__main__':
 

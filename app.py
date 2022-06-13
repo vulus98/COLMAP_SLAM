@@ -1,3 +1,5 @@
+import argparse
+from getopt import getopt
 import threading
 from time import sleep
 from pipeline import Pipeline
@@ -30,7 +32,7 @@ and set opengl version with
 
 class AppWindow:
 
-    def __init__(self, width, height, data_path=''):
+    def __init__(self, width, height, data_path='', skip_callback=False):
 
         self.window = gui.Application.instance.create_window("COLMAP Slam", width, height)
 
@@ -40,13 +42,14 @@ class AppWindow:
         self.frame_skip = 2
         self.extractor = enums.Extractors(1)
         self.matcher = enums.Matchers(1)
-        self.selector = enums.ImageSelectionMethod(1)
         self.image_path = data_path
         self.output_path = "./out/test1"
         self.export_name = "reconstruction.ply"
         self.frames = []
         self.init_frames = 20
         self.flow_thresh = 0.05
+
+        self.per_frame = skip_callback
 
         try:
             self.raw_img_count = len(os.listdir(data_path))
@@ -108,6 +111,8 @@ class AppWindow:
 
         self._settings_panel.add_fixed(separation_height)
         self._settings_panel.add_child(rec_loader)
+        self._settings_panel.add_fixed(separation_height)
+
 
         # Main reconstruction settings
         ## Change data paths
@@ -472,7 +477,6 @@ class AppWindow:
         self.is_setup = False
         self.rec.extractor = self.extractor
         self.rec.matcher = self.matcher
-        self.rec.selector = self.selector
 
         self.rec.load_data(self.image_path, self.output_path, self.export_name, init_max_num_images=int(self.init_frames), frame_skip=int(self.frame_skip), max_frame=int(self.frame_final))
         # self.rec.reset()
@@ -557,20 +561,28 @@ class AppWindow:
         self._scene.scene.clear_geometry()
         self.refresh_counter = 0
 
-
-        self.rec.run(per_frame_callback=self.process_frame, optical_flow_threshold=self.flow_thresh)
+        print(self.per_frame)
+        if self.per_frame:
+            self.rec.run(per_frame_callback=self.process_frame, optical_flow_threshold=self.flow_thresh)
+        else:
+            self.rec.run( optical_flow_threshold=self.flow_thresh)
 
         print(self.rec.reconstruction.images.keys())
         print(self.rec.reconstruction.reg_image_ids())
 
         self.refresh()
 
-def main():
+def main(skip_callback=False, data_dir='./data/rgbd_dataset_freiburg2_xyz/rgb/'):
     gui.Application.instance.initialize()
 
-    AppWindow(1500, 827, "./data/rgbd_dataset_freiburg2_xyz/rgb/")
+    AppWindow(1500, 827, data_dir, skip_callback)
 
     gui.Application.instance.run()
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Run COLMAP-SLAM on a video sequence.")
+    parser.add_argument('-f', '--fast', action='store_false', help="Optional flag to run without a per-frame callback, helps on older systems/WSL systems if OpenGL crashes")
+    parser.add_argument('-d', '--dir', nargs='?', default='./data/rgbd_dataset_freiburg2_xyz/rgb/', help="Starting data directory for the application")
+
+    args = parser.parse_args()
+    main(args.fast, args.dir)
