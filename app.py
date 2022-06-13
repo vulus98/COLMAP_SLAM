@@ -46,7 +46,7 @@ class AppWindow:
         self.output_path = "./out/test1"
         self.export_name = "reconstruction.ply"
         self.frames = []
-        self.init_frames = 20
+        self.init_frames = 30
         self.flow_thresh = 0.05
 
         self.per_frame = skip_callback
@@ -139,7 +139,7 @@ class AppWindow:
         ## Frame skip slider
         self._settings_panel.add_child(gui.Label("Number of frames to skip"))
         _frame_skip = gui.Slider(gui.Slider.INT)
-        _frame_skip.set_limits(1, 30)
+        _frame_skip.set_limits(1, 40)
         _frame_skip.int_value = self.frame_skip
         _frame_skip.set_on_value_changed(self._on_frame_skip)
         self._settings_panel.add_child(_frame_skip)
@@ -582,7 +582,7 @@ def main(skip_callback=False, data_dir='./data/rgbd_dataset_freiburg2_xyz/rgb/')
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run COLMAP-SLAM on a video sequence.")
     parser.add_argument('-f', '--fast', action='store_false', help="Optional flag to run without a per-frame callback, helps on older systems/WSL systems if OpenGL crashes")
-    parser.add_argument('-d', '--dir', nargs='?', default='./data/rgbd_dataset_freiburg2_xyz/rgb/', help="Starting data directory for the application")
+    parser.add_argument('-d', '--dir', nargs='?', default='./data/kitti/frames/', help="Starting data directory for the application")
 
     args = parser.parse_args()
     main(args.fast, args.dir)
