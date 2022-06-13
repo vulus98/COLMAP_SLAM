@@ -1,14 +1,18 @@
 import pycolmap
 import pyceres
 import numpy as np
-from src.enums import ImageSelectionMethod
+import cv2
+from pathlib import Path
+import matplotlib
+import matplotlib.pyplot as plt
+
 from Utility.logger_setup import get_logger
 from src.optimization import BundleAdjuster
 
 logger = get_logger(__name__)
 
 
-# register next image, find next images
+# Class for defining object which sets options for IncrementalMapper 
 class IncrementalMapperOptions:
     # Minimum number of inliers for initial image pair.
     init_min_num_inliers = 100
@@ -68,30 +72,28 @@ class IncrementalMapperOptions:
     # Number of threads.
     num_threads = -1
 
-    # Method to find and select next best image to register.
-    image_selection_method = ImageSelectionMethod.MIN_UNCERTAINTY
-
     # Number of images to check for finding InitialImage pair
     init_max_num_images = 60
 
-    # TODO add a check methods for parameters
+    optical_flow_threshold = 0.05
+
     def check(self):
         return True
 
-
+# Class that controls incremental mapping and wraps the core functions of the code
 class IncrementalMapper:
     # =========================== "private" ===============================
 
-    # Class that holds data of the reconstruction.
+    # Reconstruction object
     reconstruction_ = None
 
-    # Class that holds the correspondece graph
+    # Correspondece graph object
     graph_ = None
 
-    # Class that is responsible for incremental triangulation.
+    # Incremental triangulation object
     triangulator_ = None
 
-    # The class that manages the images
+    # Image manager class
     images_manager_ = None
 
     # Invalid imageId
@@ -209,15 +211,12 @@ class IncrementalMapper:
                     "num_correspondences": v
                 }
                 image_infos.append(image_info)
-
         # Sort images such that images with a prior focal length and more
         # correspondences are preferred, i.e. they appear in the front of the list.
         image_infos = sorted(image_infos, key=lambda d: (not d["prior_focal_length"], d["num_correspondences"]),
                              reverse=True)
-
         # Extract image identifiers in sorted order.
         image_ids = [image_info["image_id"] for image_info in image_infos]
-
         return image_ids
 
     # Find local bundle for given image in the reconstruction. The local bundle
@@ -228,7 +227,6 @@ class IncrementalMapper:
         if not image.registered:
             print("Local bundle with unregistered image!")
             return False
-
         shared_observations = {}
         point3D_ids = []
         for point2D in image.get_valid_points2D():
@@ -244,15 +242,9 @@ class IncrementalMapper:
         # neighbor images, hence the subtraction of 1.
         num_images = options.local_ba_num_images - 1
         num_eff_images = min(num_images, len(overlapping_images))
-
-        # TODO: skipped a huge part, dunno if relevant for us:
-        # https://github.com/colmap/colmap/blob/dev/src/sfm/incremental_mapper.cc/#L991-L111
-
         return overlapping_images[:num_eff_images]
 
-        # Register / De-register image in current reconstruction and update
-
-    # the number of shared images between all reconstructions.
+    # Function called when image is being registered which properly handles variables within class
     def RegisterImageEvent(self, image_id):
         image = self.reconstruction_.images[image_id]
         num_reg_images_for_camera = self.num_reg_images_per_camera_.get(image.camera_id, 0)
@@ -267,6 +259,7 @@ class IncrementalMapper:
         elif num_regs_for_image > 1:
             self.num_shared_reg_images_ += 1
 
+    # Function called when image is being deregistered which properly handles variables within class
     def DeRegisterImageEvent(self, image_id):
         image = self.reconstruction_.images[image_id]
         num_reg_images_for_camera = self.num_reg_images_per_camera_.get(image.camera_id, 0)
@@ -284,13 +277,13 @@ class IncrementalMapper:
 
         self.images_manager_.deregister_image(image_id)
 
+
     def EstimateInitialTwoViewGeometry(self, options, image_id1, image_id2):
         image_pair_id = self.images_manager_.ImagePairToPairId(image_id1, image_id2)
 
         if self.prev_init_image_pair_id_ == image_pair_id:
             return True
 
-        # TODO: this should get loaded from the database, make sure this way works to
         image1 = self.reconstruction_.images[image_id1]
         camera1 = self.reconstruction_.cameras[image1.camera_id]
 
@@ -314,12 +307,8 @@ class IncrementalMapper:
 
         flow_constr = self.OpticalFlowCalculator(points1, points2, answer["inliers"], camera1.focal_length_x,
                                                  camera1.focal_length_y)
-
-        # if abs(image_id1 - image_id2) > 30 and flow_constr > 0.09 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
-        if flow_constr > 0.055 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
+        if flow_constr > options.optical_flow_threshold * 1.1 and answer["num_inliers"] >= options.init_min_num_inliers and abs(
                 answer["tvec"][2]) < options.init_max_forward_motion:
-            # TODO: Note the Colmap code checks also the triangulation angle but this seems not really possible with the pycolmap bindings
-            # see: https://github.com/colmap/colmap/blob/dev/src/estimators/two_view_geometry.cc/#L216-L217
             self.prev_init_image_pair_id_ = image_pair_id
             self.prev_init_two_view_geometry_ = answer
             return True
@@ -485,14 +474,16 @@ class IncrementalMapper:
         return image_ids
 
     # Find next best image to register as keyframe and registers it into the reconstruction
-    def FindAndRegisterNextKeyframe(self, options):
+    def FindAndRegisterNextKeyframe(self, options, per_frame_callback=None):
 
         last_keyframe_id = self.reconstruction_.reg_image_ids()[-1]
         last_keyframe = self.reconstruction_.images[last_keyframe_id]
 
         for current_img_id in self.images_manager_.image_ids[last_keyframe_id:]:
 
-            self.images_manager_.add_to_correspondence_graph(last_keyframe_id, current_img_id)
+            matches = self.images_manager_.add_to_correspondence_graph(last_keyframe_id, current_img_id)
+            if matches is None:
+                continue
 
             current_img = self.reconstruction_.images[current_img_id]
             points_2D_current_img = []
@@ -519,8 +510,7 @@ class IncrementalMapper:
                 # Condition 1: Reject image if optical flow constraint is not satisfied
                 flow_constr = self.OpticalFlowCalculator(points_2D_current_img, points_2D_last_keyframe, answer["inliers"], camera.focal_length_x,
                                                          camera.focal_length_y)
-                if flow_constr < 0.05:
-                    continue
+
 
                 self.reconstruction_.register_image(current_img_id)
                 self.RegisterImageEvent(current_img_id)
@@ -534,14 +524,86 @@ class IncrementalMapper:
                 self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
 
 
+                img1 = cv2.imread(
+                    str(self.images_manager_.images_path / Path(self.images_manager_.frame_names[last_keyframe_id])))
+
+                img2 = cv2.imread(
+                    str(self.images_manager_.images_path / Path(self.images_manager_.frame_names[current_img_id])))
+                matched_points = [(last_keyframe.points2D[q].xy, current_img.points2D[t].xy) for q,t in matches]
+                for pt1, pt2 in matched_points:
+                    u1, v1 = map(lambda x: int(round(x)), pt1)
+                    u2, v2 = map(lambda x: int(round(x)), pt2)
+                    cv2.circle(img1, (u1, v1), color=(0, 255, 0), radius=2)
+                    cv2.circle(img2, (u2, v2), color=(0,255,0), radius=3)
+                    cv2.line(img2, (u1,v1), (u2,v2), color=(255,0,0))
+
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                green = (0, 255, 0)
+                red = (255, 0, 0)
+                blue = (0, 0, 255)
+                thickness = 1
+                lineType = cv2.LINE_AA
+
+                cv2.putText(img1,
+                            f'KEYFRAME id: {last_keyframe_id}',
+                            (50, 50),
+                            font,
+                            1,
+                            green,
+                            thickness,
+                            lineType)
+
+                cv2.putText(img2,
+                            f'id: {current_img_id}',
+                            (50, 50),
+                            font,
+                            1,
+                            blue,
+                            thickness,
+                            lineType)
+
+                # Extra information about current frame
+                cv2.putText(img2,
+                            f'Optical flow: {flow_constr:.2f}',
+                            (400, 20),
+                            font,
+                            (0.5),
+                            green if flow_constr >= options.optical_flow_threshold else red,
+                            thickness,
+                            lineType)
+
+                cv2.putText(img2,
+                            f'Triangulated: {current_img.num_points3D():.2f}',
+                            (400, 40),
+                            font,
+                            (0.5),
+                            green if current_img.num_points3D() >= 50 else red,
+                            thickness,
+                            lineType)
+
+                keyframe_decision = current_img.num_points3D() >= 50 and flow_constr >= options.optical_flow_threshold
+                cv2.putText(img2,
+                            f'Keyframe? {"yes" if keyframe_decision else "no"}',
+                            (400, 60),
+                            font,
+                            (0.5),
+                            green if keyframe_decision else red,
+                            thickness,
+                            lineType)
+                horizontal_concat_images = np.concatenate((img1, img2), axis=1)
+
+                # Trigger the callback with the new keyframe id
+                if per_frame_callback:
+                    per_frame_callback(current_img_id, horizontal_concat_images)
+
+                if flow_constr < options.optical_flow_threshold:
+                    continue
+
                 # Condition 2: Reject registered image if it does not track sufficient points
                 if current_img.num_points3D() < 50:
                     self.reconstruction_.deregister_image(current_img_id)
-                    # self.DeRegisterImageEvent(current_img_id) # TODO: Fix error at this line
                     continue
-
                 return current_img_id, True
-
         return None, False
 
     # Attempt to seed the reconstruction from an image pair.
@@ -569,10 +631,8 @@ class IncrementalMapper:
         image2 = self.reconstruction_.images[image_id2]
         camera2 = self.reconstruction_.cameras[image2.camera_id]
 
-        # ==========================
+ 
         # Estimate two-view geometry
-        # ==========================
-
         if not self.EstimateInitialTwoViewGeometry(options, image_id1, image_id2):
             return False
 
@@ -590,31 +650,13 @@ class IncrementalMapper:
         proj_center1 = image1.projection_center()
         proj_center2 = image2.projection_center()
 
-        # ==========================
         # Update Reconstruction
-        # ==========================
         if (image_id1 > image_id2):
             image_id1, image_id2 = image_id2, image_id1
         self.reconstruction_.register_image(image_id1)
         self.reconstruction_.register_image(image_id2)
         self.RegisterImageEvent(image_id1)
         self.RegisterImageEvent(image_id2)
-
-        # corrs = self.graph_.find_correspondences_between_images(image_id1, image_id2)
-
-        # TODO check that triangulation alone works and we do not have to manually set these things
-        '''
-        # Add 3D point tracks
-        track = pycolmap.Track()
-        track.add_element(pycolmap.TrackElement())
-        track.add_element(pycolmap.TrackElement())
-        track.elements[0].image_id = image_id1
-        track.elements[1].image_id = image_id2
-        for corr in corrs:
-            point1_N = camera1.image_to_world(image1.points2D[corr.point2D_idx1].xy)
-            point2_N = camera2.image_to_world(image2.points2D[corr.point2D_idx2].xy)
-        ...
-        '''
 
         min_tri_angle_rad = self.DegToRad(options.init_min_tri_angle)
         triang_options = pycolmap.IncrementalTriangulatorOptions()
@@ -624,7 +666,19 @@ class IncrementalMapper:
         # insufficient triangulation angle
         self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
 
-        return True
+        img1 = cv2.imread(str(self.images_manager_.images_path / Path(self.images_manager_.frame_names[image_id1])))
+        img2 = cv2.imread(str(self.images_manager_.images_path / Path(self.images_manager_.frame_names[image_id2])))
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        bottomLeftCornerOfText = (50, 50)
+        fontScale = 1
+        fontColor = (250, 50, 50)
+        thickness = 1
+        lineType = cv2.LINE_AA
+
+        cv2.putText(img1, f'id: {image_id1} (Map Initialization)', bottomLeftCornerOfText, font, fontScale, fontColor, thickness, lineType)
+        cv2.putText(img2, f'id: {image_id2} (Map Initialization)', bottomLeftCornerOfText, font, fontScale, fontColor, thickness, lineType)
+        horizontal = np.concatenate((img1, img2), axis=1)
+        return True, horizontal
 
     # Attempt to register image to the existing model. This requires that
     # a previous call to `RegisterInitialImagePair` was successful.
@@ -654,8 +708,6 @@ class IncrementalMapper:
             self.reconstruction_.register_image(query_img_id)
             self.RegisterImageEvent(query_img_id)
 
-            # TODO: options.init_min_tri_angle is the triangulation angle for the first pair and should be changed to
-            # triagulation angle for keyframing
             min_tri_angle_rad = self.DegToRad(options.init_min_tri_angle)
             triang_options = pycolmap.IncrementalTriangulatorOptions()
             self.triangulator_.triangulate_image(triang_options, query_img_id)
@@ -664,31 +716,6 @@ class IncrementalMapper:
             self.reconstruction_.filter_all_points3D(options.init_max_error, min_tri_angle_rad)
 
         return answer['success']
-
-    # Triangulate observations of image.
-    def TriangulateImage(self, tri_options, image_id):
-        a = 0
-
-    # Retriangulate image pairs that should have common observations according to
-    # the scene graph but don't due to drift, etc. To handle drift, the employed
-    # reprojection error thresholds should be relatively large. If the thresholds
-    # are too large, non-robust bundle adjustment will break down: if the
-    # thresholds are too small, we cannot fix drift effectively.
-    def Retriangulate(self, tri_options):
-        a = 0
-
-    # Complete tracks by transitively following the scene graph correspondences.
-    # This is especially effective after bundle adjustment, since many cameras
-    # and point locations might have improved. Completion of tracks enables
-    # better subsequent registration of new images.
-    def CompleteTracks(self, tri_options):
-        a = 0
-
-    # Merge tracks by using scene graph correspondences. Similar to
-    # `CompleteTracks`, this is effective after bundle adjustment and improves
-    # the redundancy in subsequent bundle adjustments.
-    def MergeTracks(self, tri_options):
-        a = 0
 
     # Adjust locally connected images and points of a reference image. In
     # addition, refine the provided 3D points. Only images connected to the
@@ -726,28 +753,29 @@ class IncrementalMapper:
                                                                           options.filter_min_tri_angle, set(variable_points))
         logger.info("Filtered " + str(num_filtered_observations) + " observations")
 
-        # Global bundle adjustment using Ceres Solver or PBA.
-
+    # Global bundle adjustment using Ceres Solver or PBA.
     def AdjustGlobalBundle(self, options, ba_options=None):
         reg_image_ids = self.reconstruction_.num_reg_images()
-
         if ba_options is None:
             ba_options = pyceres.SolverOptions()
-
         if reg_image_ids < 2:
             logger.warning("Not enough registered images for global BA")
             return False
 
         ba = BundleAdjuster(self.reconstruction_, options=ba_options)
-        # ba.constant_pose = [reg_image_ids[0]]
-        # ba.constant_tvec = [reg_image_ids[1]]
-        # ba.motion_only_BA([self.reconstruction_.images[id] for id in self.reconstruction_.reg_image_ids()])
         if not ba.global_BA():
             return False
-
-        # See: https://github.com/colmap/colmap/blob/dev/src/base/reconstruction.h/#L181
         self.reconstruction_.normalize(10.0, 0.1, 0.9, True)
+        tri_options = pycolmap.IncrementalTriangulatorOptions()
+        num_merged_observations = self.triangulator_.merge_all_tracks(tri_options)
+        num_completed_observations = self.triangulator_.complete_all_tracks(tri_options)
+        num_filtered_observations = self.reconstruction_.filter_all_points3D(options.filter_max_reproj_error,
+                                                                          options.filter_min_tri_angle)
+        logger.info("After Global BA ===============\n Merged " + str(num_merged_observations) + " tracks" +
+                    "\nCompleted " + str(num_completed_observations) + " observations" +
+                    "\nFiltered " + str(num_filtered_observations) + " observations")
         return True
+
 
     # Filter images and point observations.
     # Mainly based on the focal length
@@ -755,38 +783,14 @@ class IncrementalMapper:
         kMinNumImages = 20
         if self.reconstruction_.num_reg_images() < kMinNumImages:
             return []
-
         image_ids = self.reconstruction_.filter_images(options.min_focal_length_ratio, options.max_focal_length_ratio,
                                                        options.max_extra_param)
-
         filtered_images = []
         for img_id in image_ids:
             self.DeRegisterImageEvent(img_id)
             filtered_images.append(img_id)
-
         return len(image_ids)
 
     def FilterPoints(self, options):
         return self.reconstruction_.filter_all_points3D(options.filter_max_reproj_error, options.filter_min_tri_angle)
 
-    def GetReconstruction(self):
-        a = 0
-
-    # Number of images that are registered in at least on reconstruction.
-    def NumTotalRegImages(self):
-        a = 0
-
-    # Number of shared images between current reconstruction and all other
-    # previous reconstructions.
-    def NumSharedRegImages(self):
-        a = 0
-
-    # Get changed 3D points, since the last call to `ClearModifiedPoints3D`.
-    def GetModifiedPoints3D(self):
-        # TODO: not implementable bc missing bindings in pycolmap
-        # return self.triangulator_.get_modified_points3D()
-        return None
-
-    # Clear the collection of changed 3D points.
-    def ClearModifiedPoints3D(self):
-        a = 0
